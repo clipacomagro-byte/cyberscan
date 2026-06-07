@@ -99,6 +99,33 @@
   }
   .rec-box strong { color: var(--cyan); }
 
+  /* Burp Suite block */
+  .burp-block {
+    background: #1a1200; border: 1px solid #ff6b0044;
+    border-left: 3px solid #ff6b00;
+    border-radius: var(--radius); padding: 14px 16px; margin-bottom: 14px;
+  }
+  .burp-header {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+  }
+  .burp-label {
+    font-size: 10px; font-weight: 800; letter-spacing: 1.5px;
+    text-transform: uppercase; color: #ff6b00;
+  }
+  .burp-tool {
+    font-size: 11px; color: #cc5500; font-family: 'JetBrains Mono', monospace;
+    background: #ff6b0011; padding: 2px 8px; border-radius: 10px;
+    border: 1px solid #ff6b0033;
+  }
+  .burp-how {
+    font-size: 13px; color: #c8a87a; line-height: 1.65; margin-bottom: 10px;
+  }
+  .burp-learn {
+    font-size: 11px; color: #ff6b00; text-decoration: none; font-weight: 600;
+    opacity: 0.8; transition: opacity 0.2s;
+  }
+  .burp-learn:hover { opacity: 1; text-decoration: underline; }
+
   .detail-mono {
     font-family: 'JetBrains Mono', monospace; font-size: 11px;
     color: var(--text-muted); margin-top: 10px;
@@ -257,6 +284,19 @@ document.addEventListener('DOMContentLoaded', function() {
         <div class="impact-block danger">
           <div class="impact-label danger">🔴 An attacker CAN…</div>
           <div class="impact-text">{{ f.attacker_can }}</div>
+        </div>
+        {% endif %}
+        {% if f.get('burp') %}
+        <div class="burp-block">
+          <div class="burp-header">
+            <img src="https://avatars.githubusercontent.com/u/13122838?s=20" width="16" height="16" style="border-radius:3px;vertical-align:middle">
+            <span class="burp-label">Burp Suite Attack</span>
+            <span class="burp-tool">{{ f.burp.tool }}</span>
+          </div>
+          <div class="burp-how">{{ f.burp.how }}</div>
+          <a class="burp-learn" href="{{ f.burp.academy_path }}" target="_blank" rel="noopener">
+            Learn about {{ f.burp.academy_topic }} on PortSwigger Web Academy →
+          </a>
         </div>
         {% endif %}
         {% if f.recommendation %}
