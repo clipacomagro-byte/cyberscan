@@ -1,0 +1,256 @@
+{% extends "base.html" %}
+{% block title %}CyberScan — Web Security Scanner{% endblock %}
+
+{% block head %}
+<style>
+  .hero {
+    text-align: center;
+    padding: 64px 0 48px;
+  }
+  .hero-eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--cyan-dim); border: 1px solid #00d4ff33;
+    border-radius: 20px; padding: 5px 14px;
+    font-size: 11px; font-weight: 600; color: var(--cyan);
+    letter-spacing: 1.5px; text-transform: uppercase;
+    margin-bottom: 24px;
+  }
+  .hero h1 {
+    font-size: 52px; font-weight: 900; line-height: 1.1;
+    margin-bottom: 16px;
+    background: linear-gradient(135deg, #e8edf5 0%, #7c8db5 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .hero h1 em { font-style: normal; color: var(--cyan); -webkit-text-fill-color: var(--cyan); }
+  .hero p {
+    font-size: 17px; color: var(--text-secondary);
+    max-width: 520px; margin: 0 auto 40px;
+  }
+
+  /* Scan form */
+  .scan-card {
+    max-width: 680px; margin: 0 auto 64px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+  }
+  .scan-card-top {
+    padding: 32px 32px 0;
+  }
+  .url-row {
+    display: flex; gap: 0;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .url-row:focus-within {
+    border-color: var(--cyan);
+    box-shadow: 0 0 0 3px var(--cyan-dim);
+  }
+  .url-prefix {
+    display: flex; align-items: center;
+    padding: 0 14px;
+    background: var(--bg-hover);
+    border-right: 1px solid var(--border);
+    color: var(--text-muted); font-size: 13px;
+    font-family: 'JetBrains Mono', monospace;
+    white-space: nowrap;
+  }
+  .url-input {
+    flex: 1; padding: 14px 16px;
+    background: transparent; border: none; outline: none;
+    color: var(--text-primary); font-size: 15px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .url-input::placeholder { color: var(--text-muted); }
+
+  .disclaimer-row {
+    padding: 20px 32px;
+    display: flex; align-items: flex-start; gap: 12px;
+    border-top: 1px solid var(--border); margin-top: 20px;
+    cursor: pointer;
+  }
+  .disclaimer-row input[type=checkbox] {
+    width: 18px; height: 18px; accent-color: var(--cyan);
+    flex-shrink: 0; margin-top: 1px; cursor: pointer;
+  }
+  .disclaimer-text {
+    font-size: 13px; color: var(--text-secondary); line-height: 1.5;
+  }
+  .disclaimer-text strong { color: var(--text-primary); }
+
+  .scan-footer {
+    padding: 20px 32px 28px;
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 12px;
+  }
+  .feature-pills { display: flex; gap: 8px; flex-wrap: wrap; }
+  .pill {
+    background: var(--bg-surface); border: 1px solid var(--border);
+    border-radius: 20px; padding: 4px 10px;
+    font-size: 11px; color: var(--text-muted); font-weight: 500;
+  }
+
+  /* Features grid */
+  .features-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px; margin-bottom: 56px;
+  }
+  .feature-card {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius-lg); padding: 24px;
+    transition: border-color 0.2s;
+  }
+  .feature-card:hover { border-color: var(--border-light); }
+  .feature-icon {
+    width: 40px; height: 40px; border-radius: var(--radius);
+    background: var(--cyan-dim); display: flex; align-items: center;
+    justify-content: center; font-size: 20px; margin-bottom: 14px;
+  }
+  .feature-card h3 { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+  .feature-card p { font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
+
+  /* History */
+  .history-section { margin-top: 8px; }
+  .history-section h2 { font-size: 18px; font-weight: 700; margin-bottom: 20px; }
+  .history-table-wrap {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius-lg); overflow: hidden;
+  }
+  .status-dot {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 600; text-transform: capitalize;
+  }
+  .dot { width: 7px; height: 7px; border-radius: 50%; }
+  .dot-running { background: var(--cyan); animation: pulse 1.5s infinite; }
+  .dot-complete { background: var(--success); }
+  .dot-error { background: var(--critical); }
+  .empty-state { padding: 48px; text-align: center; color: var(--text-muted); font-size: 13px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="hero">
+  <div class="hero-eyebrow">
+    <span class="pulse-dot pulse-cyan"></span>
+    Powered by Nuclei
+  </div>
+  <h1>Scan Any Website for<br><em>Security Vulnerabilities</em></h1>
+  <p>Automated security scanning for SSL issues, misconfigurations, exposed panels, and known CVEs.</p>
+</div>
+
+<div class="scan-card">
+  {% if error %}
+  <div style="padding: 0 32px; padding-top: 24px;">
+    <div class="alert alert-error">⚠ {{ error }}</div>
+  </div>
+  {% endif %}
+
+  <form method="POST" action="/scan">
+    <div class="scan-card-top">
+      <div class="url-row">
+        <div class="url-prefix">https://</div>
+        <input
+          class="url-input"
+          type="text"
+          name="url"
+          placeholder="example.com"
+          autocomplete="off"
+          autocapitalize="none"
+          spellcheck="false"
+        >
+      </div>
+    </div>
+
+    <label class="disclaimer-row">
+      <input type="checkbox" name="permission_confirmed" value="1">
+      <div class="disclaimer-text">
+        <strong>I confirm I have permission to scan this website.</strong>
+        Scanning websites you do not own or have explicit authorization to test may be illegal.
+        CyberScan is intended for authorized security testing only.
+      </div>
+    </label>
+
+    <div class="scan-footer">
+      <div class="feature-pills">
+        <span class="pill">SSL</span>
+        <span class="pill">Headers</span>
+        <span class="pill">CVEs</span>
+        <span class="pill">Misconfigurations</span>
+        <span class="pill">Exposed Panels</span>
+      </div>
+      <button type="submit" class="btn btn-primary btn-lg">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        Start Scan
+      </button>
+    </div>
+  </form>
+</div>
+
+<div class="features-grid">
+  <div class="feature-card">
+    <div class="feature-icon">🔒</div>
+    <h3>SSL / TLS Analysis</h3>
+    <p>Detect expired certs, weak ciphers, and TLS misconfigurations.</p>
+  </div>
+  <div class="feature-card">
+    <div class="feature-icon">🛡</div>
+    <h3>Security Headers</h3>
+    <p>Check for missing HSTS, CSP, X-Frame-Options, and more.</p>
+  </div>
+  <div class="feature-card">
+    <div class="feature-icon">🚨</div>
+    <h3>Known CVEs</h3>
+    <p>Identify vulnerabilities using community-maintained Nuclei templates.</p>
+  </div>
+  <div class="feature-card">
+    <div class="feature-icon">🗂</div>
+    <h3>PDF Reports</h3>
+    <p>Download professional security reports with findings and remediation notes.</p>
+  </div>
+</div>
+
+<div class="history-section" id="history">
+  <h2>Scan History</h2>
+  <div class="history-table-wrap">
+    {% if history %}
+    <table>
+      <thead>
+        <tr>
+          <th>Target</th>
+          <th>Status</th>
+          <th>Date</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in history %}
+        <tr>
+          <td class="mono">{{ s.url }}</td>
+          <td>
+            <span class="status-dot">
+              <span class="dot dot-{{ s.status }}"></span>
+              {{ s.status }}
+            </span>
+          </td>
+          <td style="color:var(--text-secondary)">{{ s.created_at[:16].replace('T',' ') }} UTC</td>
+          <td>
+            {% if s.status == 'complete' %}
+              <a href="/results/{{ s.id }}" class="btn btn-ghost" style="padding:6px 14px;font-size:12px;">View</a>
+            {% elif s.status == 'running' %}
+              <a href="/scan/{{ s.id }}" class="btn btn-ghost" style="padding:6px 14px;font-size:12px;">Progress</a>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">No scans yet — enter a URL above to get started.</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

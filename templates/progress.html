@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %}Scanning {{ scan.url }} — CyberScan{% endblock %}
+
+{% block head %}
+<style>
+  .progress-wrap {
+    max-width: 640px; margin: 80px auto; text-align: center;
+  }
+  .scan-icon {
+    width: 80px; height: 80px; border-radius: 50%;
+    background: var(--cyan-dim); border: 2px solid #00d4ff33;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 36px; margin: 0 auto 28px;
+  }
+  .scan-icon.error-icon { background: #ff3b3b11; border-color: #ff3b3b33; }
+
+  .progress-title { font-size: 26px; font-weight: 700; margin-bottom: 10px; }
+  .progress-url {
+    font-family: 'JetBrains Mono', monospace; font-size: 13px;
+    color: var(--cyan); margin-bottom: 36px;
+    word-break: break-all;
+  }
+
+  /* Animated scanner bar */
+  .scanner-bar-wrap {
+    background: var(--bg-surface); border: 1px solid var(--border);
+    border-radius: 4px; height: 6px; overflow: hidden; margin-bottom: 16px;
+  }
+  @keyframes scan-slide {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(400%); }
+  }
+  .scanner-bar {
+    height: 100%;
+    width: 25%;
+    background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+    animation: scan-slide 1.8s ease-in-out infinite;
+    border-radius: 4px;
+  }
+
+  .progress-meta { font-size: 13px; color: var(--text-muted); margin-bottom: 32px; }
+
+  .check-list {
+    text-align: left; background: var(--bg-card);
+    border: 1px solid var(--border); border-radius: var(--radius-lg);
+    padding: 24px 28px; margin-bottom: 28px;
+    list-style: none;
+  }
+  .check-list li {
+    display: flex; align-items: center; gap: 12px;
+    padding: 9px 0; border-bottom: 1px solid var(--border);
+    font-size: 13px; color: var(--text-secondary);
+  }
+  .check-list li:last-child { border-bottom: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spinner {
+    width: 16px; height: 16px; border: 2px solid var(--border);
+    border-top-color: var(--cyan); border-radius: 50%;
+    animation: spin 0.8s linear infinite; flex-shrink: 0;
+  }
+  .check-label { font-weight: 500; }
+  .check-desc { color: var(--text-muted); font-size: 12px; }
+
+  .error-box {
+    background: #ff3b3b11; border: 1px solid #ff3b3b44;
+    border-radius: var(--radius); padding: 18px 22px;
+    color: #ff8080; font-size: 13px; text-align: left;
+    margin-bottom: 24px;
+  }
+</style>
+
+<script>
+  {% if scan.status == 'running' %}
+  (function poll() {
+    fetch('/scan/{{ scan.id }}/status')
+      .then(r => r.json())
+      .then(data => {
+        if (data.status === 'complete') {
+          window.location.href = '/results/{{ scan.id }}';
+        } else if (data.status === 'error') {
+          window.location.reload();
+        } else {
+          setTimeout(poll, 5000);
+        }
+      })
+      .catch(() => setTimeout(poll, 5000));
+  })();
+  {% endif %}
+</script>
+{% endblock %}
+
+{% block content %}
+<div class="progress-wrap">
+  {% if scan.status == 'running' %}
+    <div class="scan-icon">🔍</div>
+    <div class="progress-title">Scanning in progress…</div>
+    <div class="progress-url">{{ scan.url }}</div>
+
+    <div class="scanner-bar-wrap">
+      <div class="scanner-bar"></div>
+    </div>
+    <div class="progress-meta">Auto-refreshing every 5 seconds &bull; Please keep this tab open</div>
+
+    <ul class="check-list">
+      <li>
+        <div class="spinner"></div>
+        <div>
+          <div class="check-label">SSL / TLS Certificates</div>
+          <div class="check-desc">Checking certificate validity, expiry, and cipher strength</div>
+        </div>
+      </li>
+      <li>
+        <div class="spinner"></div>
+        <div>
+          <div class="check-label">HTTP Security Headers</div>
+          <div class="check-desc">HSTS, CSP, X-Frame-Options, X-Content-Type-Options</div>
+        </div>
+      </li>
+      <li>
+        <div class="spinner"></div>
+        <div>
+          <div class="check-label">Server Misconfigurations</div>
+          <div class="check-desc">Open redirects, debug endpoints, directory listing</div>
+        </div>
+      </li>
+      <li>
+        <div class="spinner"></div>
+        <div>
+          <div class="check-label">Exposed Admin Panels</div>
+          <div class="check-desc">Publicly accessible login and administration interfaces</div>
+        </div>
+      </li>
+      <li>
+        <div class="spinner"></div>
+        <div>
+          <div class="check-label">Known CVEs</div>
+          <div class="check-desc">Matching against community Nuclei vulnerability templates</div>
+        </div>
+      </li>
+    </ul>
+
+    <p style="font-size:12px;color:var(--text-muted)">Scan rate limited to 10 req/s &bull; Estimated time: 1–3 minutes</p>
+
+  {% elif scan.status == 'error' %}
+    <div class="scan-icon error-icon">⚠️</div>
+    <div class="progress-title">Scan Failed</div>
+    <div class="progress-url">{{ scan.url }}</div>
+    <div class="error-box">
+      <strong>Error:</strong> {{ scan.error or 'An unexpected error occurred.' }}
+    </div>
+    <a href="/" class="btn btn-primary">Try Again</a>
+  {% endif %}
+</div>
+{% endblock %}
