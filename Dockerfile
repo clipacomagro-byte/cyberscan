@@ -10,10 +10,11 @@ RUN apt-get update && apt-get install -y \
     libharfbuzz0b \
     libffi-dev \
     libcairo2 \
-    libgdk-pixbuf2.0-0 \
+    libgdk-pixbuf-xlib-2.0-0 \
     libxml2 \
     libxslt1.1 \
     shared-mime-info \
+    fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Nuclei binary from GitHub releases
