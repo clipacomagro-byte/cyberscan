@@ -1,16 +1,15 @@
 import os
 from datetime import datetime
-from jinja2 import Environment, FileSystemLoader
 
 REPORTS_DIR = os.environ.get("REPORTS_DIR", "reports")
 
 SEVERITY_COLORS = {
-    "critical": "#ff3b3b",
-    "high": "#ff6b2b",
-    "medium": "#f0a500",
-    "low": "#4fa3e0",
-    "info": "#7c8db5",
-    "unknown": "#555",
+    "critical": "#cc2222",
+    "high": "#cc5500",
+    "medium": "#aa7700",
+    "low": "#2266aa",
+    "info": "#556688",
+    "unknown": "#555555",
 }
 
 PDF_TEMPLATE = """<!DOCTYPE html>
@@ -19,165 +18,191 @@ PDF_TEMPLATE = """<!DOCTYPE html>
 <meta charset="utf-8">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Helvetica Neue', Arial, sans-serif; color: #1a1a2e; background: #fff; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #111; background: #fff; font-size: 13px; }
 
-  /* Cover page */
+  /* ---- Cover ---- */
   .cover {
-    height: 100vh;
-    background: linear-gradient(135deg, #0d0d1a 0%, #1a1a2e 50%, #0f3460 100%);
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    color: white;
-    text-align: center;
-    padding: 60px;
     page-break-after: always;
+    background: #0d1117;
+    color: #fff;
+    padding: 80px 60px;
+    min-height: 100vh;
   }
-  .cover .logo { font-size: 48px; font-weight: 900; letter-spacing: 4px; color: #00d4ff; margin-bottom: 8px; }
-  .cover .tagline { font-size: 14px; color: #7c8db5; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 60px; }
-  .cover h1 { font-size: 36px; font-weight: 700; margin-bottom: 16px; }
-  .cover .target { font-size: 20px; color: #00d4ff; margin-bottom: 40px; word-break: break-all; }
-  .cover .meta { font-size: 13px; color: #7c8db5; line-height: 2; }
-  .cover .badge {
-    display: inline-block; margin-top: 40px; padding: 10px 28px;
-    border: 2px solid #00d4ff; border-radius: 4px; color: #00d4ff;
-    font-size: 12px; letter-spacing: 2px; text-transform: uppercase;
+  .cover-logo {
+    font-size: 42px; font-weight: 900; letter-spacing: 4px;
+    color: #00d4ff; margin-bottom: 6px;
+  }
+  .cover-logo span { color: #4a5568; font-weight: 300; }
+  .cover-tagline {
+    font-size: 12px; color: #4a5568; letter-spacing: 2px;
+    text-transform: uppercase; margin-bottom: 80px;
+  }
+  .cover h1 { font-size: 32px; font-weight: 700; color: #e8edf5; margin-bottom: 14px; }
+  .cover-url { font-size: 18px; color: #00d4ff; margin-bottom: 48px; word-break: break-all; }
+  .cover-meta { font-size: 13px; color: #4a5568; line-height: 2.2; }
+  .cover-badge {
+    display: inline-block; margin-top: 48px;
+    padding: 8px 24px; border: 2px solid #00d4ff;
+    color: #00d4ff; font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
   }
 
-  /* Content */
-  .content { padding: 48px 56px; }
-  h2 { font-size: 22px; font-weight: 700; color: #0f3460; border-bottom: 3px solid #00d4ff;
-       padding-bottom: 8px; margin-bottom: 24px; margin-top: 40px; }
+  /* ---- Content page ---- */
+  .page { padding: 52px 56px; }
+
+  h2 {
+    font-size: 18px; font-weight: 700; color: #0f3460;
+    border-bottom: 2px solid #00d4ff;
+    padding-bottom: 8px; margin-bottom: 20px; margin-top: 36px;
+  }
   h2:first-child { margin-top: 0; }
+  p { line-height: 1.7; color: #333; margin-bottom: 10px; }
 
-  /* Summary cards */
-  .summary-grid { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 32px; }
-  .summary-card {
-    flex: 1; min-width: 100px; padding: 20px; border-radius: 8px;
-    text-align: center; color: white;
+  /* Summary table */
+  .summary-table { width: 100%; border-collapse: collapse; margin-bottom: 28px; }
+  .summary-table td {
+    padding: 14px 18px; text-align: center;
+    font-weight: 700; font-size: 13px; color: #fff;
   }
-  .summary-card .count { font-size: 36px; font-weight: 900; }
-  .summary-card .label { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; opacity: 0.85; }
+  .summary-table .sev-count { font-size: 28px; display: block; font-weight: 900; }
 
-  /* Findings */
+  /* Finding cards */
   .finding {
-    border: 1px solid #e0e6f0; border-radius: 8px;
-    margin-bottom: 16px; overflow: hidden; page-break-inside: avoid;
+    border: 1px solid #dde3ee;
+    margin-bottom: 14px;
+    page-break-inside: avoid;
   }
-  .finding-header {
-    padding: 14px 18px; display: flex; justify-content: space-between; align-items: center;
+  .finding-head {
+    padding: 12px 16px;
+    border-left: 5px solid #ccc;
+    display: table; width: 100%;
   }
-  .finding-name { font-size: 15px; font-weight: 700; }
-  .finding-id { font-size: 11px; opacity: 0.7; }
-  .severity-badge {
-    padding: 4px 12px; border-radius: 20px; font-size: 11px;
-    font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: white;
+  .finding-title { font-size: 14px; font-weight: 700; }
+  .finding-badge {
+    float: right; padding: 3px 10px;
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    color: #fff; letter-spacing: 0.5px;
   }
-  .finding-body { padding: 14px 18px; background: #f8faff; }
-  .finding-body p { font-size: 13px; line-height: 1.6; color: #444; margin-bottom: 8px; }
-  .finding-body .matched { font-size: 12px; color: #0f3460; font-family: monospace; }
-  .finding-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
-  .tag { background: #e0e6f0; padding: 2px 8px; border-radius: 10px; font-size: 11px; color: #0f3460; }
+  .finding-body { padding: 12px 16px; background: #f9faff; }
+  .finding-body p { font-size: 12px; margin-bottom: 8px; }
 
-  /* Footer */
-  .footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid #e0e6f0;
-            font-size: 11px; color: #aaa; text-align: center; }
+  .can-block { background: #fff0f0; border-left: 3px solid #cc2222; padding: 10px 14px; margin-bottom: 10px; }
+  .cannot-block { background: #f0fff8; border-left: 3px solid #007755; padding: 10px 14px; margin-bottom: 10px; }
+  .burp-block { background: #fff8f0; border-left: 3px solid #cc5500; padding: 10px 14px; margin-bottom: 10px; }
+  .block-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px; }
+  .block-text { font-size: 12px; color: #333; line-height: 1.6; }
+  .fix-text { font-size: 12px; color: #0f3460; font-style: italic; margin-top: 8px; }
 
-  @page { margin: 0; }
-  .content-page { padding: 48px 56px; }
+  .protected-section h3 { font-size: 13px; font-weight: 700; color: #007755; margin-bottom: 10px; margin-top: 24px; }
+  .protected-item { padding: 8px 12px; border-left: 3px solid #007755; margin-bottom: 6px; background: #f0fff8; }
+  .protected-item .pi-name { font-size: 12px; font-weight: 700; }
+  .protected-item .pi-desc { font-size: 11px; color: #555; margin-top: 3px; }
+
+  .footer {
+    margin-top: 40px; padding-top: 14px; border-top: 1px solid #dde3ee;
+    font-size: 10px; color: #aaa; text-align: center;
+  }
 </style>
 </head>
 <body>
 
-<!-- Cover -->
 <div class="cover">
-  <div class="logo">CYBERSCAN</div>
-  <div class="tagline">Security Vulnerability Report</div>
-  <h1>Web Security Assessment</h1>
-  <div class="target">{{ url }}</div>
-  <div class="meta">
+  <div class="cover-logo">CYBER<span>SCAN</span></div>
+  <div class="cover-tagline">Web Security Assessment Report</div>
+  <h1>Security Vulnerability Report</h1>
+  <div class="cover-url">{{ url }}</div>
+  <div class="cover-meta">
     Scan Date: {{ scan_date }}<br>
     Report Generated: {{ report_date }}<br>
-    Total Findings: {{ findings|length }}
+    Total Checks: {{ all_findings|length }}<br>
+    Issues Found: {{ vulnerable|length }}<br>
+    Protected: {{ protected|length }}
   </div>
-  <div class="badge">Confidential</div>
+  <div class="cover-badge">Confidential — Authorized Use Only</div>
 </div>
 
-<!-- Executive Summary -->
-<div class="content-page">
+<div class="page">
   <h2>Executive Summary</h2>
-  <p style="font-size:14px;line-height:1.8;color:#444;margin-bottom:28px;">
-    CyberScan conducted an automated security assessment of <strong>{{ url }}</strong> on {{ scan_date }}.
-    The scan tested for SSL/TLS misconfigurations, missing HTTP security headers, exposed administrative
-    panels, and known CVEs using Nuclei templates.
-    {% if findings %}
-    A total of <strong>{{ findings|length }}</strong> finding(s) were identified across
-    {{ severity_counts|length }} severity level(s). Immediate attention is recommended for any
-    Critical or High severity findings.
-    {% else %}
-    No significant security issues were detected during this scan. This does not guarantee the
-    absence of all vulnerabilities — a manual penetration test is recommended for comprehensive coverage.
-    {% endif %}
+  <p>
+    CyberScan performed an automated security assessment of <strong>{{ url }}</strong> on {{ scan_date }}.
+    The assessment covered SSL/TLS configuration, HTTP security headers, exposed administrative panels,
+    and known CVE vulnerabilities.
   </p>
-
-  <div class="summary-grid">
-    {% for sev, color in severity_colors.items() %}
-    {% set count = severity_counts.get(sev, 0) %}
-    <div class="summary-card" style="background:{{ color }};">
-      <div class="count">{{ count }}</div>
-      <div class="label">{{ sev }}</div>
-    </div>
-    {% endfor %}
-  </div>
-
-  <h2>Findings Detail</h2>
-
-  {% if not findings %}
-  <p style="color:#7c8db5;font-style:italic;">No findings were detected for this target.</p>
+  {% if vulnerable %}
+  <p>
+    <strong>{{ vulnerable|length }}</strong> security issue(s) were identified.
+    {% if crit_count > 0 %}<strong style="color:#cc2222">{{ crit_count }} Critical</strong> issue(s) require immediate remediation.{% endif %}
+    {% if high_count > 0 %}<strong style="color:#cc5500">{{ high_count }} High</strong> risk finding(s) should be addressed promptly.{% endif %}
+    Review the findings below and apply recommended fixes to improve your security posture.
+  </p>
+  {% else %}
+  <p>No security issues were detected. The site demonstrates a strong baseline security configuration.
+  A manual penetration test is recommended for comprehensive coverage.</p>
   {% endif %}
 
-  {% for finding in findings %}
-  {% set color = severity_colors.get(finding.severity, '#555') %}
+  <!-- Severity summary -->
+  <table class="summary-table">
+    <tr>
+      {% for sev, color in sev_colors.items() %}
+      <td style="background:{{ color }}">
+        <span class="sev-count">{{ counts.get(sev, 0) }}</span>
+        {{ sev | upper }}
+      </td>
+      {% endfor %}
+    </tr>
+  </table>
+
+  <!-- Vulnerable findings -->
+  {% if vulnerable %}
+  <h2>Issues Found</h2>
+  {% for f in vulnerable %}
+  {% set color = sev_colors.get(f.severity, '#555') %}
   <div class="finding">
-    <div class="finding-header" style="background:{{ color }}22; border-left: 5px solid {{ color }};">
-      <div>
-        <div class="finding-name" style="color:{{ color }}">{{ finding.name }}</div>
-        <div class="finding-id">{{ finding.template_id }}</div>
-      </div>
-      <div class="severity-badge" style="background:{{ color }};">{{ finding.severity }}</div>
+    <div class="finding-head" style="border-left-color:{{ color }};background:{{ color }}11">
+      <span class="finding-badge" style="background:{{ color }}">{{ f.severity }}</span>
+      <div class="finding-title" style="color:{{ color }}">{{ f.name }}</div>
+      <div style="font-size:11px;color:#888;margin-top:2px">{{ f.get('category','') }}</div>
     </div>
     <div class="finding-body">
-      {% if finding.attacker_can %}
-      <p><strong style="color:#cc2222">⚠ Attacker CAN:</strong> {{ finding.attacker_can }}</p>
-      {% endif %}
-      {% if finding.attacker_cannot %}
-      <p><strong style="color:#007755">✓ Attacker CANNOT:</strong> {{ finding.attacker_cannot }}</p>
-      {% endif %}
-      {% if finding.recommendation %}
-      <p><strong>Fix:</strong> {{ finding.recommendation }}</p>
-      {% endif %}
-      {% if finding.matched_at %}
-      <p class="matched">Matched at: {{ finding.matched_at }}</p>
-      {% endif %}
-      {% if finding.tags %}
-      <div class="finding-tags">
-        {% for tag in finding.tags %}
-        <span class="tag">{{ tag }}</span>
-        {% endfor %}
+      {% if f.attacker_can %}
+      <div class="can-block">
+        <div class="block-label" style="color:#cc2222">An attacker CAN</div>
+        <div class="block-text">{{ f.attacker_can }}</div>
       </div>
       {% endif %}
-      {% if finding.reference %}
-      <p style="margin-top:8px;font-size:12px;color:#666;">
-        Reference: {% for ref in finding.reference[:2] %}{{ ref }}{% if not loop.last %}, {% endif %}{% endfor %}
-      </p>
+      {% if f.get('burp') %}
+      <div class="burp-block">
+        <div class="block-label" style="color:#cc5500">Burp Suite Attack — {{ f.burp.tool }}</div>
+        <div class="block-text">{{ f.burp.how }}</div>
+      </div>
+      {% endif %}
+      {% if f.recommendation %}
+      <p class="fix-text"><strong>Fix:</strong> {{ f.recommendation }}</p>
+      {% endif %}
+      {% if f.detail %}
+      <p style="font-size:11px;color:#888;font-family:monospace;margin-top:6px">{{ f.detail }}</p>
       {% endif %}
     </div>
   </div>
   {% endfor %}
+  {% endif %}
+
+  <!-- Protected -->
+  {% if protected %}
+  <div class="protected-section">
+    <h3>Passing Checks ({{ protected|length }})</h3>
+    {% for f in protected %}
+    <div class="protected-item">
+      <div class="pi-name">{{ f.name }}</div>
+      {% if f.attacker_cannot %}
+      <div class="pi-desc">Attacker CANNOT: {{ f.attacker_cannot }}</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
 
   <div class="footer">
-    Generated by CyberScan &bull; {{ report_date }} &bull; For authorized use only
+    Generated by CyberScan &bull; {{ report_date }} &bull; cyberscan-production.up.railway.app
   </div>
 </div>
 
@@ -194,17 +219,24 @@ def generate_pdf(scan_id: str, url: str, findings: list, created_at: str) -> str
 
     os.makedirs(REPORTS_DIR, exist_ok=True)
 
-    severity_colors = {
-        "critical": "#ff3b3b",
-        "high": "#ff6b2b",
-        "medium": "#f0a500",
-        "low": "#4fa3e0",
-        "info": "#7c8db5",
+    sev_colors = {
+        "critical": "#cc2222",
+        "high": "#cc5500",
+        "medium": "#aa7700",
+        "low": "#2266aa",
+        "info": "#556688",
     }
-    severity_counts = {}
-    for f in findings:
+
+    vulnerable = [f for f in findings if f.get("status") == "vulnerable"]
+    protected  = [f for f in findings if f.get("status") == "protected"]
+
+    counts = {}
+    for f in vulnerable:
         s = f.get("severity", "info")
-        severity_counts[s] = severity_counts.get(s, 0) + 1
+        counts[s] = counts.get(s, 0) + 1
+
+    crit_count = counts.get("critical", 0)
+    high_count = counts.get("high", 0)
 
     try:
         scan_date = datetime.fromisoformat(created_at).strftime("%B %d, %Y %H:%M UTC")
@@ -216,11 +248,15 @@ def generate_pdf(scan_id: str, url: str, findings: list, created_at: str) -> str
     tmpl = env.from_string(PDF_TEMPLATE)
     html_content = tmpl.render(
         url=url,
-        findings=findings,
+        all_findings=findings,
+        vulnerable=vulnerable,
+        protected=protected,
         scan_date=scan_date,
         report_date=datetime.utcnow().strftime("%B %d, %Y %H:%M UTC"),
-        severity_colors=severity_colors,
-        severity_counts=severity_counts,
+        sev_colors=sev_colors,
+        counts=counts,
+        crit_count=crit_count,
+        high_count=high_count,
     )
 
     out_path = os.path.join(REPORTS_DIR, f"{scan_id}.pdf")
