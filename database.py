@@ -23,6 +23,7 @@ def init_db():
             created_at TEXT NOT NULL,
             completed_at TEXT,
             findings_json TEXT,
+            cloudflare_json TEXT,
             error TEXT
         );
     """)
@@ -40,11 +41,11 @@ def create_scan(scan_id: str, url: str):
     conn.close()
 
 
-def update_scan_complete(scan_id: str, findings: list):
+def update_scan_complete(scan_id: str, findings: list, cf_info: dict = None):
     conn = get_db()
     conn.execute(
-        "UPDATE scans SET status='complete', completed_at=?, findings_json=? WHERE id=?",
-        (datetime.utcnow().isoformat(), json.dumps(findings), scan_id),
+        "UPDATE scans SET status='complete', completed_at=?, findings_json=?, cloudflare_json=? WHERE id=?",
+        (datetime.utcnow().isoformat(), json.dumps(findings), json.dumps(cf_info or {}), scan_id),
     )
     conn.commit()
     conn.close()
@@ -71,6 +72,10 @@ def get_scan(scan_id: str):
         result["findings"] = json.loads(result["findings_json"])
     else:
         result["findings"] = []
+    if result.get("cloudflare_json"):
+        result["cloudflare"] = json.loads(result["cloudflare_json"])
+    else:
+        result["cloudflare"] = {}
     return result
 
 

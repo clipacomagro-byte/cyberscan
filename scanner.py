@@ -40,7 +40,7 @@ def _parse_nuclei_jsonl(output: str) -> list:
 
 def run_scan(scan_id: str, url: str):
     # Always run direct HTTP checks first
-    findings = run_http_checks(url)
+    findings, cf_info = run_http_checks(url)
 
     # Deep TLS analysis via SSL Labs API (works through Cloudflare)
     ssl_labs_findings = run_ssl_labs_checks(url)
@@ -86,7 +86,7 @@ def run_scan(scan_id: str, url: str):
         key=lambda f: SEVERITY_ORDER.index(f.get("severity", "unknown"))
         if f.get("severity", "unknown") in SEVERITY_ORDER else 99
     )
-    update_scan_complete(scan_id, findings)
+    update_scan_complete(scan_id, findings, cf_info)
 
 
 def start_scan_thread(scan_id: str, url: str):

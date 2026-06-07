@@ -203,6 +203,80 @@ CHECKS = [
 ]
 
 
+# Cloudflare IP ranges (updated 2024)
+_CF_IP_RANGES = [
+    "103.21.244.", "103.22.200.", "103.31.4.", "104.16.", "104.17.",
+    "104.18.", "104.19.", "104.20.", "104.21.", "104.22.", "104.23.",
+    "104.24.", "104.25.", "104.26.", "104.27.", "104.28.", "108.162.",
+    "131.0.72.", "141.101.64.", "141.101.65.", "141.101.66.", "141.101.67.",
+    "162.158.", "172.64.", "172.65.", "172.66.", "172.67.", "172.68.",
+    "172.69.", "172.70.", "172.71.", "188.114.96.", "188.114.97.",
+    "188.114.98.", "188.114.99.", "190.93.240.", "190.93.241.",
+    "190.93.242.", "190.93.243.", "197.234.240.", "197.234.241.",
+    "198.41.128.", "198.41.129.", "198.41.130.", "198.41.131.",
+    "199.27.128.", "199.27.129.", "199.27.130.", "199.27.131.",
+]
+
+
+def _detect_cloudflare(headers: dict, hostname: str) -> dict:
+    """
+    Detect if the site is behind Cloudflare.
+    Returns a dict with is_cloudflare bool and details.
+    """
+    signals = []
+    score = 0
+
+    # Header signals
+    server = headers.get("server", "").lower()
+    if "cloudflare" in server:
+        signals.append("Server: cloudflare header present")
+        score += 3
+    if "cf-ray" in headers:
+        signals.append(f"CF-Ray: {headers['cf-ray']}")
+        score += 3
+    if "cf-cache-status" in headers:
+        signals.append(f"CF-Cache-Status: {headers['cf-cache-status']}")
+        score += 2
+    if "cf-request-id" in headers:
+        signals.append("CF-Request-ID header detected")
+        score += 2
+    if "__cf_bm" in headers.get("set-cookie", ""):
+        signals.append("Cloudflare bot management cookie (__cf_bm)")
+        score += 2
+    if "expect-ct" in headers and "cloudflare" in headers.get("expect-ct", "").lower():
+        signals.append("Expect-CT header from Cloudflare")
+        score += 1
+
+    # DNS / IP signal
+    try:
+        ip = socket.gethostbyname(hostname)
+        is_cf_ip = any(ip.startswith(prefix) for prefix in _CF_IP_RANGES)
+        if is_cf_ip:
+            signals.append(f"IP {ip} is in Cloudflare's address space")
+            score += 3
+        else:
+            signals.append(f"IP {ip} (not a Cloudflare IP — may be direct/CDN)")
+    except Exception:
+        ip = "unknown"
+
+    is_cloudflare = score >= 3
+
+    return {
+        "detected": is_cloudflare,
+        "confidence": "High" if score >= 5 else "Medium" if score >= 3 else "Low",
+        "signals": signals,
+        "ip": ip if "ip" in dir() else "unknown",
+        "note": (
+            "This site is proxied through Cloudflare. Some security findings (HSTS, security headers) "
+            "should be fixed in the Cloudflare Dashboard — not on the origin server. "
+            "Origin server IP is hidden behind Cloudflare's network."
+        ) if is_cloudflare else (
+            "No Cloudflare proxy detected. This appears to be a direct connection to the origin server."
+        ),
+        "fix_location": "Cloudflare Dashboard (SSL/TLS → Edge Certificates and Security settings)" if is_cloudflare else "Origin web server configuration",
+    }
+
+
 def _fetch(url: str):
     req = urllib.request.Request(url, headers={"User-Agent": "CyberScan/1.0 Security Audit"})
     with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
@@ -306,13 +380,20 @@ def _check_exposed_panels(base_url: str) -> list:
     return findings
 
 
-def run_http_checks(url: str) -> list:
+def run_http_checks(url: str) -> tuple:
+    """
+    Returns (findings_list, cloudflare_info_dict).
+    cloudflare_info is always present — detected=False if not behind Cloudflare.
+    """
+    from urllib.parse import urlparse
     results = []
     results.append(_check_ssl(url))
+    hostname = urlparse(url).hostname or ""
 
     try:
         headers, status, final_url = _fetch(url)
     except Exception as e:
+        cf_info = _detect_cloudflare({}, hostname)
         results.append({
             "id": "fetch_error",
             "name": "Site Reachability",
@@ -325,7 +406,9 @@ def run_http_checks(url: str) -> list:
             "recommendation": "Verify the URL is correct and the server is running.",
             "detail": f"Could not connect: {e}",
         })
-        return results
+        return results, cf_info
+
+    cf_info = _detect_cloudflare(headers, hostname)
 
     for chk in CHECKS:
         burp = BURP_INFO.get(chk["id"])
@@ -367,7 +450,7 @@ def run_http_checks(url: str) -> list:
             })
 
     results.extend(_check_exposed_panels(url))
-    return results
+    return results, cf_info
 
 
 # ---------------------------------------------------------------------------
