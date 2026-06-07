@@ -5,136 +5,166 @@
 <style>
   .results-header {
     display: flex; justify-content: space-between; align-items: flex-start;
-    flex-wrap: wrap; gap: 20px; margin-bottom: 36px;
+    flex-wrap: wrap; gap: 20px; margin-bottom: 32px;
   }
   .results-header h1 { font-size: 24px; font-weight: 700; margin-bottom: 6px; }
-  .results-url {
-    font-family: 'JetBrains Mono', monospace; font-size: 13px;
-    color: var(--cyan);
-  }
+  .results-url { font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--cyan); }
   .results-meta { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+  .actions { display: flex; gap: 12px; flex-shrink: 0; }
 
-  /* Summary row */
-  .severity-summary {
-    display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 36px;
-  }
-  .sev-card {
-    flex: 1; min-width: 100px;
+  /* Score bar */
+  .score-wrap {
     background: var(--bg-card); border: 1px solid var(--border);
-    border-radius: var(--radius-lg); padding: 18px 20px;
-    text-align: center; transition: border-color 0.2s;
-    cursor: pointer; text-decoration: none;
+    border-radius: var(--radius-lg); padding: 24px 28px;
+    margin-bottom: 28px;
+    display: flex; align-items: center; gap: 32px; flex-wrap: wrap;
   }
-  .sev-card:hover { border-color: var(--border-light); }
-  .sev-card.has-findings { border-color: var(--sev-color); box-shadow: 0 0 0 1px var(--sev-color); }
-  .sev-count { font-size: 32px; font-weight: 900; line-height: 1; }
-  .sev-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }
+  .score-ring-wrap { position: relative; width: 90px; height: 90px; flex-shrink: 0; }
+  .score-ring { transform: rotate(-90deg); }
+  .score-ring-bg { fill: none; stroke: var(--bg-surface); stroke-width: 8; }
+  .score-ring-fill { fill: none; stroke-width: 8; stroke-linecap: round; transition: stroke-dashoffset 1s ease; }
+  .score-num {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 24px; font-weight: 900; line-height: 1;
+  }
+  .score-label { font-size: 10px; color: var(--text-muted); text-align: center; margin-top: 2px; }
+
+  .score-summary { flex: 1; }
+  .score-summary h2 { font-size: 18px; font-weight: 700; margin-bottom: 6px; }
+  .score-summary p { font-size: 13px; color: var(--text-secondary); line-height: 1.6; }
+
+  .sev-pills { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+  .sev-pill {
+    display: flex; align-items: center; gap: 6px;
+    padding: 5px 12px; border-radius: 20px;
+    font-size: 12px; font-weight: 600;
+    border: 1px solid; cursor: pointer; text-decoration: none;
+  }
+  .sev-pill .dot { width: 7px; height: 7px; border-radius: 50%; }
 
   /* Finding cards */
-  .section-title {
-    display: flex; align-items: center; gap: 10px;
-    font-size: 16px; font-weight: 700;
-    margin-bottom: 14px; margin-top: 36px;
-  }
-  .section-title .count-pill {
-    background: var(--bg-surface); border: 1px solid var(--border);
-    border-radius: 20px; padding: 2px 10px;
-    font-size: 12px; color: var(--text-secondary); font-weight: 500;
-  }
+  .findings-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
 
   .finding-card {
     background: var(--bg-card); border: 1px solid var(--border);
-    border-radius: var(--radius-lg); margin-bottom: 12px;
-    overflow: hidden; transition: border-color 0.2s;
+    border-radius: var(--radius-lg); overflow: hidden;
+    transition: border-color 0.15s;
   }
+  .finding-card.vulnerable { border-left: 4px solid var(--sev-color); }
+  .finding-card.protected { border-left: 4px solid var(--success); }
   .finding-card:hover { border-color: var(--border-light); }
 
   .finding-head {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 16px 20px; gap: 12px; cursor: pointer;
-    border-left: 4px solid var(--sev-color);
+    padding: 14px 18px; gap: 12px; cursor: pointer;
   }
-  .finding-head-left { flex: 1; min-width: 0; }
-  .finding-name { font-size: 14px; font-weight: 600; margin-bottom: 3px; }
-  .finding-id { font-size: 11px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; }
-  .finding-chevron {
-    color: var(--text-muted); transition: transform 0.2s; flex-shrink: 0; font-size: 18px;
-  }
+  .finding-head-left { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; }
+  .status-icon { font-size: 18px; flex-shrink: 0; }
+  .finding-name { font-size: 14px; font-weight: 600; }
+  .finding-category { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  .finding-chevron { color: var(--text-muted); transition: transform 0.2s; font-size: 16px; flex-shrink: 0; }
   .finding-card.open .finding-chevron { transform: rotate(180deg); }
 
   .finding-body {
-    display: none; padding: 0 20px 20px;
-    border-top: 1px solid var(--border); padding-top: 16px;
+    display: none; padding: 16px 18px 18px;
+    border-top: 1px solid var(--border);
+    background: var(--bg-surface);
   }
   .finding-card.open .finding-body { display: block; }
 
-  .finding-desc { font-size: 13px; color: var(--text-secondary); line-height: 1.65; margin-bottom: 14px; }
-
-  .detail-row { display: flex; gap: 8px; margin-bottom: 8px; }
-  .detail-label {
-    font-size: 11px; font-weight: 600; text-transform: uppercase;
-    letter-spacing: 0.8px; color: var(--text-muted); width: 100px; flex-shrink: 0;
-    padding-top: 1px;
+  /* CAN / CANNOT blocks */
+  .impact-block {
+    border-radius: var(--radius); padding: 14px 16px; margin-bottom: 14px;
   }
-  .detail-value { font-size: 13px; color: var(--text-primary); font-family: 'JetBrains Mono', monospace; word-break: break-all; }
+  .impact-block.danger {
+    background: #ff3b3b0d; border: 1px solid #ff3b3b33;
+  }
+  .impact-block.safe {
+    background: #00c8960d; border: 1px solid #00c89633;
+  }
+  .impact-label {
+    font-size: 10px; font-weight: 800; letter-spacing: 1.5px;
+    text-transform: uppercase; margin-bottom: 6px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .impact-label.danger { color: #ff6b6b; }
+  .impact-label.safe { color: var(--success); }
+  .impact-text { font-size: 13px; line-height: 1.65; color: var(--text-secondary); }
 
-  .tag-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
-  .tag {
-    background: var(--bg-surface); border: 1px solid var(--border);
-    border-radius: 20px; padding: 3px 10px;
-    font-size: 11px; color: var(--text-secondary);
+  .rec-box {
+    background: var(--cyan-dim); border: 1px solid #00d4ff22;
+    border-radius: var(--radius); padding: 12px 14px;
+    font-size: 12px; color: var(--text-secondary); line-height: 1.5;
+  }
+  .rec-box strong { color: var(--cyan); }
+
+  .detail-mono {
+    font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    color: var(--text-muted); margin-top: 10px;
+    padding: 8px 12px; background: var(--bg-card);
+    border-radius: 4px; border: 1px solid var(--border);
+    word-break: break-all;
   }
 
-  .no-findings {
-    text-align: center; padding: 64px 24px;
-    background: var(--bg-card); border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
+  /* Section headers */
+  .section-label {
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 1.5px; color: var(--text-muted);
+    margin: 28px 0 12px; display: flex; align-items: center; gap: 8px;
   }
-  .no-findings .icon { font-size: 48px; margin-bottom: 16px; }
-  .no-findings h2 { font-size: 20px; font-weight: 700; margin-bottom: 8px; }
-  .no-findings p { color: var(--text-secondary); font-size: 14px; }
-
-  .actions { display: flex; gap: 12px; align-items: center; flex-shrink: 0; }
+  .section-label::after {
+    content: ''; flex: 1; height: 1px; background: var(--border);
+  }
 </style>
 
 <script>
-  function toggleCard(el) {
-    el.closest('.finding-card').classList.toggle('open');
-  }
-  document.addEventListener('DOMContentLoaded', function() {
-    // Auto-open critical and high
-    document.querySelectorAll('.finding-card[data-sev="critical"], .finding-card[data-sev="high"]')
-      .forEach(c => c.classList.add('open'));
-  });
+function toggle(el) {
+  el.closest('.finding-card').classList.toggle('open');
+}
+document.addEventListener('DOMContentLoaded', function() {
+  document.querySelectorAll('.finding-card.vulnerable[data-sev="critical"], .finding-card.vulnerable[data-sev="high"]')
+    .forEach(c => c.classList.add('open'));
+});
 </script>
 {% endblock %}
 
 {% block content %}
-
 {% set sev_colors = {
   'critical': '#ff3b3b',
   'high': '#ff6b2b',
   'medium': '#f0a500',
   'low': '#4fa3e0',
   'info': '#7c8db5',
-  'unknown': '#555555'
+  'unknown': '#555'
 } %}
+
+{% set vulnerable = scan.findings | selectattr('status', 'equalto', 'vulnerable') | list %}
+{% set protected  = scan.findings | selectattr('status', 'equalto', 'protected')  | list %}
 {% set total = scan.findings | length %}
 
+{% set critical_n = vulnerable | selectattr('severity', 'equalto', 'critical') | list | length %}
+{% set high_n     = vulnerable | selectattr('severity', 'equalto', 'high')     | list | length %}
+{% set medium_n   = vulnerable | selectattr('severity', 'equalto', 'medium')   | list | length %}
+{% set low_n      = vulnerable | selectattr('severity', 'equalto', 'low')      | list | length %}
+
+{# Security score: start 100, deduct by severity #}
+{% set score = [100 - critical_n * 25 - high_n * 15 - medium_n * 7 - low_n * 3, 0] | max %}
+
+<!-- Header -->
 <div class="results-header">
   <div>
-    <h1>Scan Complete</h1>
+    <h1>Security Assessment</h1>
     <div class="results-url">{{ scan.url }}</div>
     <div class="results-meta">
       Scanned {{ scan.created_at[:16].replace('T',' ') }} UTC
-      &bull; {{ total }} finding{{ 's' if total != 1 }}
+      &bull; {{ total }} check{{ 's' if total != 1 }}
+      &bull; {{ vulnerable|length }} issue{{ 's' if vulnerable|length != 1 }}
+      &bull; {{ protected|length }} protected
     </div>
   </div>
   <div class="actions">
-    <a href="/" class="btn btn-ghost">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12l7-7 7 7"/></svg>
-      New Scan
-    </a>
+    <a href="/" class="btn btn-ghost">New Scan</a>
     <a href="/report/{{ scan.id }}" class="btn btn-primary">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       Download PDF
@@ -142,83 +172,146 @@
   </div>
 </div>
 
-<!-- Severity Summary -->
-<div class="severity-summary">
-  {% for sev in severity_order %}
-  {% set count = counts[sev] %}
-  {% set color = sev_colors[sev] %}
-  <a class="sev-card {% if count > 0 %}has-findings{% endif %}"
-     href="#sev-{{ sev }}"
-     style="--sev-color: {{ color }}">
-    <div class="sev-count" style="color: {% if count > 0 %}{{ color }}{% else %}var(--text-muted){% endif %}">{{ count }}</div>
-    <div class="sev-label" style="color: {% if count > 0 %}{{ color }}{% else %}var(--text-muted){% endif %}">{{ sev }}</div>
-  </a>
-  {% endfor %}
+<!-- Score + Summary -->
+{% set score_color = '#ff3b3b' if score < 40 else ('#f0a500' if score < 70 else '#00c896') %}
+{% set circumference = 251.2 %}
+{% set dash_offset = circumference * (1 - score / 100) %}
+<div class="score-wrap">
+  <div>
+    <div class="score-ring-wrap">
+      <svg class="score-ring" viewBox="0 0 90 90" width="90" height="90">
+        <circle class="score-ring-bg" cx="45" cy="45" r="40"/>
+        <circle class="score-ring-fill"
+          cx="45" cy="45" r="40"
+          stroke="{{ score_color }}"
+          stroke-dasharray="{{ circumference }}"
+          stroke-dashoffset="{{ dash_offset }}"/>
+      </svg>
+      <div class="score-num" style="color:{{ score_color }}">{{ score }}</div>
+    </div>
+    <div class="score-label">SECURITY SCORE</div>
+  </div>
+  <div class="score-summary">
+    <h2>
+      {% if score >= 80 %}Strong security posture
+      {% elif score >= 60 %}Some issues to address
+      {% elif score >= 40 %}Several risks detected
+      {% else %}Significant vulnerabilities found{% endif %}
+    </h2>
+    <p>
+      {% if vulnerable %}
+        Found <strong>{{ vulnerable|length }} security issue{{ 's' if vulnerable|length != 1 }}</strong> across {{ total }} checks.
+        {% if critical_n > 0 %}<strong style="color:var(--critical)">{{ critical_n }} critical</strong> issue{{ 's' if critical_n != 1 }} need immediate attention.{% endif %}
+        {% if high_n > 0 %}<strong style="color:var(--high)">{{ high_n }} high</strong> risk{{ 's' if high_n != 1 }}.{% endif %}
+      {% else %}
+        No issues detected across {{ total }} checks — this site has a strong security baseline.
+      {% endif %}
+    </p>
+    <div class="sev-pills">
+      {% for sev, color in [('critical','#ff3b3b'),('high','#ff6b2b'),('medium','#f0a500'),('low','#4fa3e0')] %}
+      {% set n = vulnerable | selectattr('severity', 'equalto', sev) | list | length %}
+      {% if n > 0 %}
+      <a class="sev-pill" href="#sev-{{ sev }}"
+         style="color:{{ color }};border-color:{{ color }}33;background:{{ color }}11">
+        <span class="dot" style="background:{{ color }}"></span>
+        {{ n }} {{ sev | capitalize }}
+      </a>
+      {% endif %}
+      {% endfor %}
+      {% if protected %}
+      <span class="sev-pill" style="color:var(--success);border-color:#00c89633;background:#00c8960d">
+        <span class="dot" style="background:var(--success)"></span>
+        {{ protected|length }} Protected
+      </span>
+      {% endif %}
+    </div>
+  </div>
 </div>
 
-{% if total == 0 %}
-<div class="no-findings">
-  <div class="icon">✅</div>
-  <h2>No Findings Detected</h2>
-  <p>No known vulnerabilities were identified during this scan.<br>
-  Consider a manual penetration test for comprehensive coverage.</p>
-</div>
-{% else %}
-
-{% for sev in severity_order %}
-{% set findings = grouped[sev] %}
-{% if findings %}
+<!-- Vulnerable findings -->
+{% if vulnerable %}
+{% for sev in ['critical','high','medium','low','info','unknown'] %}
+{% set sev_findings = vulnerable | selectattr('severity', 'equalto', sev) | list %}
+{% if sev_findings %}
 {% set color = sev_colors[sev] %}
 <div id="sev-{{ sev }}">
-  <div class="section-title" style="color: {{ color }}">
-    <span>{{ sev | capitalize }}</span>
-    <span class="count-pill">{{ findings | length }}</span>
+  <div class="section-label" style="color:{{ color }}">
+    ⚠ {{ sev | capitalize }} risk — {{ sev_findings|length }} issue{{ 's' if sev_findings|length != 1 }}
   </div>
-
-  {% for f in findings %}
-  <div class="finding-card" data-sev="{{ sev }}" style="--sev-color: {{ color }}">
-    <div class="finding-head" onclick="toggleCard(this)">
-      <div class="finding-head-left">
-        <div class="finding-name">{{ f.name }}</div>
-        <div class="finding-id">{{ f.template_id }}</div>
+  <div class="findings-list">
+    {% for f in sev_findings %}
+    <div class="finding-card vulnerable" data-sev="{{ sev }}" style="--sev-color:{{ color }}">
+      <div class="finding-head" onclick="toggle(this)">
+        <div class="finding-head-left">
+          <span class="status-icon">⚠️</span>
+          <div>
+            <div class="finding-name">{{ f.name }}</div>
+            <div class="finding-category">{{ f.get('category','') }}</div>
+          </div>
+        </div>
+        <span class="badge badge-{{ sev }}">{{ sev }}</span>
+        <span class="finding-chevron">⌄</span>
       </div>
-      <span class="badge badge-{{ sev }}">{{ sev }}</span>
+      <div class="finding-body">
+        {% if f.attacker_can %}
+        <div class="impact-block danger">
+          <div class="impact-label danger">🔴 An attacker CAN…</div>
+          <div class="impact-text">{{ f.attacker_can }}</div>
+        </div>
+        {% endif %}
+        {% if f.recommendation %}
+        <div class="rec-box">
+          <strong>Fix:</strong> {{ f.recommendation }}
+        </div>
+        {% endif %}
+        {% if f.detail %}
+        <div class="detail-mono">{{ f.detail }}</div>
+        {% endif %}
+        {% if f.get('matched_at') and f.matched_at != scan.url %}
+        <div class="detail-mono">Matched at: {{ f.matched_at }}</div>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+{% endfor %}
+{% endif %}
+
+<!-- Protected -->
+{% if protected %}
+<div class="section-label" style="color:var(--success)">
+  ✓ Protected — {{ protected|length }} check{{ 's' if protected|length != 1 }} passed
+</div>
+<div class="findings-list">
+  {% for f in protected %}
+  <div class="finding-card protected" style="--sev-color:var(--success)">
+    <div class="finding-head" onclick="toggle(this)">
+      <div class="finding-head-left">
+        <span class="status-icon">✅</span>
+        <div>
+          <div class="finding-name">{{ f.name }}</div>
+          <div class="finding-category">{{ f.get('category','') }}</div>
+        </div>
+      </div>
+      <span class="badge" style="background:#00c89622;color:#00c896;border:1px solid #00c89644">Protected</span>
       <span class="finding-chevron">⌄</span>
     </div>
     <div class="finding-body">
-      <p class="finding-desc">{{ f.description }}</p>
-
-      {% if f.matched_at %}
-      <div class="detail-row">
-        <span class="detail-label">Matched at</span>
-        <span class="detail-value">{{ f.matched_at }}</span>
+      {% if f.attacker_cannot %}
+      <div class="impact-block safe">
+        <div class="impact-label safe">🟢 An attacker CANNOT…</div>
+        <div class="impact-text">{{ f.attacker_cannot }}</div>
       </div>
       {% endif %}
-
-      {% if f.reference %}
-      <div class="detail-row">
-        <span class="detail-label">Reference</span>
-        <div>
-          {% for ref in f.reference[:3] %}
-          <div class="detail-value" style="margin-bottom:4px">{{ ref }}</div>
-          {% endfor %}
-        </div>
-      </div>
-      {% endif %}
-
-      {% if f.tags %}
-      <div class="tag-list">
-        {% for tag in f.tags %}
-        <span class="tag">{{ tag }}</span>
-        {% endfor %}
-      </div>
+      {% if f.detail %}
+      <div class="detail-mono">{{ f.detail }}</div>
       {% endif %}
     </div>
   </div>
   {% endfor %}
-{% endif %}
-{% endfor %}
-
+</div>
 {% endif %}
 
 {% endblock %}

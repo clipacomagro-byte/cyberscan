@@ -148,7 +148,15 @@ PDF_TEMPLATE = """<!DOCTYPE html>
       <div class="severity-badge" style="background:{{ color }};">{{ finding.severity }}</div>
     </div>
     <div class="finding-body">
-      <p>{{ finding.description }}</p>
+      {% if finding.attacker_can %}
+      <p><strong style="color:#cc2222">⚠ Attacker CAN:</strong> {{ finding.attacker_can }}</p>
+      {% endif %}
+      {% if finding.attacker_cannot %}
+      <p><strong style="color:#007755">✓ Attacker CANNOT:</strong> {{ finding.attacker_cannot }}</p>
+      {% endif %}
+      {% if finding.recommendation %}
+      <p><strong>Fix:</strong> {{ finding.recommendation }}</p>
+      {% endif %}
       {% if finding.matched_at %}
       <p class="matched">Matched at: {{ finding.matched_at }}</p>
       {% endif %}
@@ -203,7 +211,8 @@ def generate_pdf(scan_id: str, url: str, findings: list, created_at: str) -> str
     except Exception:
         scan_date = created_at
 
-    env = Environment()
+    from jinja2 import Environment as JinjaEnv
+    env = JinjaEnv()
     tmpl = env.from_string(PDF_TEMPLATE)
     html_content = tmpl.render(
         url=url,
