@@ -1,9 +1,12 @@
 """
 Direct HTTP security checks — always run regardless of Nuclei.
 Each check returns a finding dict with attacker impact narrative.
+SSL Labs deep TLS analysis for Cloudflare-protected and all HTTPS sites.
 """
 import ssl
 import socket
+import json
+import time
 import urllib.request
 import urllib.error
 from datetime import datetime, timezone
@@ -60,6 +63,62 @@ BURP_INFO = {
         "academy_topic": "Information disclosure",
         "academy_path": "https://portswigger.net/web-security/information-disclosure",
     },
+}
+
+# SSL Labs deep-scan Burp info entries
+BURP_TLS_OLD = {
+    "tool": "Burp Suite Proxy + TLS Poodle PoC",
+    "how": "The attacker forces a TLS downgrade to 1.0 or 1.1 by intercepting the ClientHello in Burp's Proxy and modifying the supported_versions field. Once on TLS 1.0/1.1 they can exploit BEAST (CBC cipher padding oracle) to decrypt session cookies byte-by-byte. In Burp Repeater the attacker replays requests with modified padding until the session token is recovered.",
+    "academy_topic": "TLS / Transport Layer Security",
+    "academy_path": "https://portswigger.net/web-security",
+}
+BURP_WEAK_CIPHER = {
+    "tool": "Burp Suite Proxy + Wireshark",
+    "how": "The attacker uses Burp Proxy alongside Wireshark to capture TLS traffic and identify CBC cipher handshakes. Weak ciphers (3DES, RC4, CBC without AEAD) can be broken with a BEAST or Lucky13 attack — the attacker records thousands of encrypted blocks and uses Burp Repeater to craft block-aligned boundary requests that leak plaintext byte-by-byte.",
+    "academy_topic": "TLS / Transport Layer Security",
+    "academy_path": "https://portswigger.net/web-security",
+}
+BURP_BEAST = {
+    "tool": "Burp Suite Proxy (BEAST PoC)",
+    "how": "BEAST (Browser Exploit Against SSL/TLS) targets TLS 1.0 + CBC ciphers. The attacker injects JavaScript into any same-origin resource on the victim's browser to perform a chosen-plaintext attack. They use Burp Proxy to intercept the CBC-encrypted blocks and — by controlling part of the plaintext — recover the session cookie within minutes. Modern TLS 1.2/1.3 with AEAD ciphers is immune.",
+    "academy_topic": "TLS / Transport Layer Security",
+    "academy_path": "https://portswigger.net/web-security",
+}
+BURP_POODLE = {
+    "tool": "Burp Suite Proxy (POODLE PoC)",
+    "how": "POODLE (Padding Oracle On Downgraded Legacy Encryption) exploits SSLv3's CBC padding. The attacker forces a protocol downgrade through Burp's match-and-replace rules and uses a JavaScript injected in the browser to make 256 crafted requests per byte of the session cookie. With an average of 128 requests per byte, a 32-byte cookie takes ~4,096 requests — automated easily in Burp Intruder.",
+    "academy_topic": "TLS / Transport Layer Security",
+    "academy_path": "https://portswigger.net/web-security",
+}
+BURP_HEARTBLEED = {
+    "tool": "Burp Suite + Heartbleed Extension",
+    "how": "The attacker installs the Heartbleed Burp extension (BApp Store). One click sends a malformed heartbeat request that tricks the server into leaking up to 64KB of RAM — which may contain private keys, session tokens, plaintext passwords, or database credentials from other users' requests. No authentication required. The attack leaves no trace in access logs.",
+    "academy_topic": "TLS / Transport Layer Security",
+    "academy_path": "https://portswigger.net/web-security",
+}
+BURP_DROWN = {
+    "tool": "Burp Suite Scanner + SSLv2 PoC",
+    "how": "DROWN works by using SSLv2 on any server sharing the same private key. The attacker sends specially crafted SSLv2 export cipher handshakes to the vulnerable server, which acts as a decryption oracle. Burp Scanner flags the SSLv2 exposure; the actual decryption uses cross-protocol stolen ciphertext from the TLS server — recovering session tokens from TLS connections without touching TLS at all.",
+    "academy_topic": "TLS / Transport Layer Security",
+    "academy_path": "https://portswigger.net/web-security",
+}
+BURP_NO_HSTS_SSL = {
+    "tool": "Burp Suite Proxy (SSL Strip)",
+    "how": "Even if the server sends HSTS in an HTTP response, without HSTS the browser has no memory of this policy on first visit. The attacker positions Burp as a MitM on public Wi-Fi and uses a match-and-replace rule to strip 'https://' links to 'http://' before they reach the browser. The browser happily follows the downgraded link — Burp HTTP History logs every cookie and credential in plaintext.",
+    "academy_topic": "HTTP request smuggling / Transport attacks",
+    "academy_path": "https://portswigger.net/web-security/request-smuggling",
+}
+BURP_LOGJAM = {
+    "tool": "Burp Suite Proxy + LogJam PoC",
+    "how": "Logjam targets DHE_EXPORT key exchanges. The attacker MitMs the TLS handshake via Burp Proxy and downgrades the server to 512-bit 'export-grade' Diffie-Hellman. Using precomputed discrete log tables (feasible on commodity hardware), the attacker decrypts the session key in real time and reads the entire HTTPS session in Burp's HTTP History — effectively breaking HTTPS silently.",
+    "academy_topic": "TLS / Transport Layer Security",
+    "academy_path": "https://portswigger.net/web-security",
+}
+BURP_FREAK = {
+    "tool": "Burp Suite Proxy (FREAK Attack)",
+    "how": "FREAK (Factoring RSA Export Keys) forces the server to use 512-bit RSA_EXPORT keys by intercepting the ClientHello in Burp Proxy and stripping all non-export cipher suites. The resulting 512-bit key can be factored in ~7 hours on Amazon EC2. Once factored, the attacker has the session key and can decrypt all captured TLS traffic replayed through Burp Decoder.",
+    "academy_topic": "TLS / Transport Layer Security",
+    "academy_path": "https://portswigger.net/web-security",
 }
 
 # Exposed panel burp info template
@@ -309,3 +368,341 @@ def run_http_checks(url: str) -> list:
 
     results.extend(_check_exposed_panels(url))
     return results
+
+
+# ---------------------------------------------------------------------------
+# SSL Labs deep TLS analysis
+# ---------------------------------------------------------------------------
+
+SSL_LABS_API = "https://api.ssllabs.com/api/v3"
+
+def _ssl_labs_get(params: dict) -> dict:
+    qs = "&".join(f"{k}={v}" for k, v in params.items())
+    req = urllib.request.Request(
+        f"{SSL_LABS_API}/analyze?{qs}",
+        headers={"User-Agent": "CyberScan/1.0 Security Audit"},
+    )
+    with urllib.request.urlopen(req, timeout=20) as r:
+        return json.loads(r.read())
+
+
+def run_ssl_labs_checks(url: str) -> list:
+    """
+    Query the free SSL Labs API for deep TLS analysis.
+    Returns findings in the same format as run_http_checks().
+    Works even on Cloudflare-protected sites because it operates at TLS level.
+    """
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    hostname = parsed.hostname
+    if not hostname or parsed.scheme != "https":
+        return []
+
+    findings = []
+    try:
+        # Kick off scan (fromCache=on reuses recent results so we don't wait)
+        data = _ssl_labs_get({"host": hostname, "fromCache": "on", "all": "done"})
+
+        # If cache miss, start fresh and poll
+        if data.get("status") == "DNS":
+            data = _ssl_labs_get({"host": hostname, "startNew": "on", "all": "done"})
+
+        attempts = 0
+        while data.get("status") not in ("READY", "ERROR") and attempts < 25:
+            time.sleep(8)
+            data = _ssl_labs_get({"host": hostname, "all": "done"})
+            attempts += 1
+
+        if data.get("status") != "READY":
+            return []
+
+        endpoints = data.get("endpoints", [])
+        if not endpoints:
+            return []
+
+        # Use the best-graded endpoint
+        endpoints_sorted = sorted(endpoints, key=lambda e: e.get("grade", "Z"))
+        ep = endpoints_sorted[0]
+        grade = ep.get("grade", "?")
+        details = ep.get("details", {})
+
+        # ── Grade summary finding ──────────────────────────────────────────
+        grade_is_bad = grade not in ("A", "A+")
+        grade_attacker_can = (
+            f"Exploit TLS weaknesses on this server — SSL Labs grades it '{grade}' meaning it supports "
+            "deprecated protocols or weak ciphers that enable downgrade and decryption attacks."
+        ) if grade_is_bad else None
+        grade_attacker_cannot = (
+            "Exploit TLS weaknesses — SSL Labs grades this server A or A+, meaning modern-only "
+            "protocols and strong ciphers are enforced."
+        ) if not grade_is_bad else None
+        findings.append({
+            "id": "ssl_labs_grade",
+            "name": f"SSL Labs Grade: {grade}",
+            "category": "TLS Deep Analysis (SSL Labs)",
+            "severity": "high" if grade_is_bad else "info",
+            "status": "vulnerable" if grade_is_bad else "protected",
+            "matched_at": hostname,
+            "attacker_can": grade_attacker_can,
+            "attacker_cannot": grade_attacker_cannot,
+            "recommendation": "Target an A+ grade: enable TLS 1.3 only, disable TLS 1.0/1.1, deploy HSTS, use AEAD ciphers." if grade_is_bad else None,
+            "detail": f"SSL Labs assessed {hostname} and assigned grade {grade}.",
+            "burp": None,
+        })
+
+        # ── TLS 1.0 / 1.1 still supported ─────────────────────────────────
+        protocols = details.get("protocols", [])
+        weak_proto_names = [
+            f"TLS {p['version']}" for p in protocols
+            if str(p.get("version", "")) in ("1.0", "1.1")
+        ]
+        if weak_proto_names:
+            proto_str = " and ".join(weak_proto_names)
+            findings.append({
+                "id": "ssl_labs_tls_old",
+                "name": f"Deprecated TLS Protocol: {proto_str} Enabled",
+                "category": "TLS Deep Analysis (SSL Labs)",
+                "severity": "high",
+                "status": "vulnerable",
+                "matched_at": hostname,
+                "attacker_can": (
+                    f"Force your server into {proto_str} — a deprecated protocol full of known "
+                    "vulnerabilities. On TLS 1.0 + CBC ciphers the attacker can execute the BEAST attack "
+                    "to decrypt your users' session cookies byte-by-byte. This also caps your SSL Labs "
+                    f"grade to B and may fail PCI DSS compliance audits."
+                ),
+                "attacker_cannot": None,
+                "recommendation": f"Disable {proto_str} in your TLS configuration. Only TLS 1.2 (with AEAD ciphers) and TLS 1.3 should be enabled.",
+                "detail": f"Server supports: {', '.join(weak_proto_names)}. These should be disabled.",
+                "burp": BURP_TLS_OLD,
+            })
+        else:
+            enabled = [f"TLS {p['version']}" for p in protocols]
+            findings.append({
+                "id": "ssl_labs_tls_old",
+                "name": "Modern TLS Protocols Only",
+                "category": "TLS Deep Analysis (SSL Labs)",
+                "severity": "info",
+                "status": "protected",
+                "matched_at": hostname,
+                "attacker_can": None,
+                "attacker_cannot": "Force a downgrade to deprecated TLS 1.0 or 1.1 — only modern TLS versions are accepted.",
+                "recommendation": None,
+                "detail": f"Enabled: {', '.join(enabled)}. No deprecated protocols.",
+                "burp": None,
+            })
+
+        # ── Weak cipher suites ─────────────────────────────────────────────
+        suites_data = details.get("suites", [])
+        weak_ciphers = []
+        for suite_group in suites_data:
+            for cs in suite_group.get("list", []):
+                if cs.get("q") == 0:  # q=0 means WEAK in SSL Labs API
+                    weak_ciphers.append(cs.get("name", "Unknown"))
+        if weak_ciphers:
+            sample = weak_ciphers[:3]
+            findings.append({
+                "id": "ssl_labs_weak_ciphers",
+                "name": f"Weak Cipher Suites Enabled ({len(weak_ciphers)} found)",
+                "category": "TLS Deep Analysis (SSL Labs)",
+                "severity": "medium",
+                "status": "vulnerable",
+                "matched_at": hostname,
+                "attacker_can": (
+                    f"Negotiate a weak cipher suite (e.g. {sample[0]}) during the TLS handshake. "
+                    "CBC-mode ciphers are vulnerable to Lucky13 and BEAST padding oracle attacks — "
+                    "the attacker captures encrypted traffic and, through thousands of crafted requests, "
+                    "recovers plaintext session tokens without the private key."
+                ),
+                "attacker_cannot": None,
+                "recommendation": "Disable all CBC and 3DES cipher suites. Configure your server to use only AEAD ciphers: AES-GCM and ChaCha20-Poly1305.",
+                "detail": f"Weak ciphers: {', '.join(weak_ciphers[:5])}{'...' if len(weak_ciphers) > 5 else ''}",
+                "burp": BURP_WEAK_CIPHER,
+            })
+        else:
+            findings.append({
+                "id": "ssl_labs_weak_ciphers",
+                "name": "No Weak Cipher Suites",
+                "category": "TLS Deep Analysis (SSL Labs)",
+                "severity": "info",
+                "status": "protected",
+                "matched_at": hostname,
+                "attacker_can": None,
+                "attacker_cannot": "Negotiate a weak cipher — only strong AEAD cipher suites are offered.",
+                "recommendation": None,
+                "detail": "All cipher suites use strong AEAD encryption (AES-GCM / ChaCha20).",
+                "burp": None,
+            })
+
+        # ── BEAST ─────────────────────────────────────────────────────────
+        if details.get("vulnBeast"):
+            findings.append({
+                "id": "ssl_labs_beast",
+                "name": "BEAST Attack — Not Mitigated",
+                "category": "TLS Deep Analysis (SSL Labs)",
+                "severity": "medium",
+                "status": "vulnerable",
+                "matched_at": hostname,
+                "attacker_can": (
+                    "Execute the BEAST (Browser Exploit Against SSL/TLS) attack against users on TLS 1.0. "
+                    "By injecting JavaScript into any resource the victim's browser loads, the attacker "
+                    "controls part of the plaintext and can decrypt session cookies byte-by-byte — "
+                    "gaining full account access without knowing the password."
+                ),
+                "attacker_cannot": None,
+                "recommendation": "Disable TLS 1.0 entirely and prioritise TLS 1.3. If TLS 1.2 must be kept, use only GCM (AEAD) cipher suites — they are immune to BEAST.",
+                "detail": "Server supports TLS 1.0 + CBC ciphers. BEAST is unmitigated server-side.",
+                "burp": BURP_BEAST,
+            })
+
+        # ── POODLE ────────────────────────────────────────────────────────
+        if details.get("poodle") or details.get("poodleTls") == 2:
+            findings.append({
+                "id": "ssl_labs_poodle",
+                "name": "POODLE Attack Vulnerable",
+                "category": "TLS Deep Analysis (SSL Labs)",
+                "severity": "high",
+                "status": "vulnerable",
+                "matched_at": hostname,
+                "attacker_can": (
+                    "Exploit the POODLE (Padding Oracle On Downgraded Legacy Encryption) vulnerability "
+                    "to decrypt HTTPS sessions. The attacker forces a downgrade to SSLv3, then uses "
+                    "your browser as a padding oracle — making ~256 crafted requests per byte of your "
+                    "session cookie. A typical session cookie is cracked in under 5 minutes."
+                ),
+                "attacker_cannot": None,
+                "recommendation": "Disable SSLv3 completely on your server. It has no safe use — TLS 1.2+ replaces it entirely.",
+                "detail": "Server is vulnerable to POODLE — SSLv3 padding oracle attack confirmed.",
+                "burp": BURP_POODLE,
+            })
+
+        # ── Heartbleed ────────────────────────────────────────────────────
+        if details.get("heartbleed"):
+            findings.append({
+                "id": "ssl_labs_heartbleed",
+                "name": "Heartbleed Vulnerability (CVE-2014-0160)",
+                "category": "TLS Deep Analysis (SSL Labs)",
+                "severity": "critical",
+                "status": "vulnerable",
+                "matched_at": hostname,
+                "attacker_can": (
+                    "Read up to 64KB of your server's live RAM per request — completely unauthenticated. "
+                    "This memory contains TLS private keys, session tokens, plaintext passwords from "
+                    "active user sessions, database credentials, and API keys. The attacker can "
+                    "impersonate your server, decrypt past and future traffic, and steal any user's "
+                    "session. It leaves no trace in your access logs."
+                ),
+                "attacker_cannot": None,
+                "recommendation": "Update OpenSSL immediately to 1.0.1g or later. Revoke and reissue all TLS certificates. Invalidate all session tokens. This is a critical emergency fix.",
+                "detail": "Heartbleed (CVE-2014-0160) confirmed — OpenSSL memory leak via malformed heartbeat request.",
+                "burp": BURP_HEARTBLEED,
+            })
+
+        # ── DROWN ─────────────────────────────────────────────────────────
+        if details.get("drownVulnerable"):
+            findings.append({
+                "id": "ssl_labs_drown",
+                "name": "DROWN Attack Vulnerable",
+                "category": "TLS Deep Analysis (SSL Labs)",
+                "severity": "high",
+                "status": "vulnerable",
+                "matched_at": hostname,
+                "attacker_can": (
+                    "Decrypt your modern TLS traffic by attacking SSLv2 on the same server (or another "
+                    "server sharing the same private key). DROWN requires no access to the client — "
+                    "the attacker captures TLS ciphertext, uses SSLv2 export cipher handshakes as a "
+                    "decryption oracle, and recovers the session key in hours. Full HTTPS session "
+                    "contents are then readable: credentials, tokens, payment data."
+                ),
+                "attacker_cannot": None,
+                "recommendation": "Disable SSLv2 on all servers sharing this private key. Do not reuse private keys across servers. Patch OpenSSL to remove SSLv2 support.",
+                "detail": "Server is vulnerable to DROWN — SSLv2 enabled, enabling cross-protocol decryption of TLS traffic.",
+                "burp": BURP_DROWN,
+            })
+
+        # ── Logjam ────────────────────────────────────────────────────────
+        if details.get("logjam"):
+            findings.append({
+                "id": "ssl_labs_logjam",
+                "name": "Logjam — Weak Diffie-Hellman Key Exchange",
+                "category": "TLS Deep Analysis (SSL Labs)",
+                "severity": "high",
+                "status": "vulnerable",
+                "matched_at": hostname,
+                "attacker_can": (
+                    "Downgrade your TLS handshake to use 512-bit export-grade Diffie-Hellman. "
+                    "Using precomputed discrete log tables (feasible on standard hardware for 512-bit DH), "
+                    "the attacker recovers the session key in real time and reads the full HTTPS session — "
+                    "silently, with no indication to the user or server."
+                ),
+                "attacker_cannot": None,
+                "recommendation": "Disable DHE_EXPORT cipher suites. Generate a unique 2048-bit or 4096-bit DH group. Prefer ECDHE key exchange (X25519 or P-256).",
+                "detail": "Server supports export-grade Diffie-Hellman — susceptible to Logjam downgrade.",
+                "burp": BURP_LOGJAM,
+            })
+
+        # ── FREAK ─────────────────────────────────────────────────────────
+        if details.get("freak"):
+            findings.append({
+                "id": "ssl_labs_freak",
+                "name": "FREAK — Export RSA Keys Supported",
+                "category": "TLS Deep Analysis (SSL Labs)",
+                "severity": "high",
+                "status": "vulnerable",
+                "matched_at": hostname,
+                "attacker_can": (
+                    "Force your server into 512-bit RSA_EXPORT key exchange by stripping all "
+                    "strong cipher suites from the ClientHello. A 512-bit RSA key can be factored "
+                    "in ~7 hours on Amazon EC2 (~$100). Once factored, the attacker decrypts "
+                    "all captured HTTPS traffic — exposing every user's session tokens and credentials."
+                ),
+                "attacker_cannot": None,
+                "recommendation": "Disable all RSA_EXPORT cipher suites on your server. Enable only ECDHE and DHE key exchange with 2048-bit+ parameters.",
+                "detail": "Server accepts RSA_EXPORT cipher suites — FREAK downgrade attack possible.",
+                "burp": BURP_FREAK,
+            })
+
+        # ── HSTS (from SSL Labs — works even through Cloudflare) ──────────
+        hsts_policy = details.get("hstsPolicy", {})
+        hsts_status = hsts_policy.get("status", "absent")
+        if hsts_status == "absent":
+            findings.append({
+                "id": "ssl_labs_hsts",
+                "name": "HSTS Not Configured (Confirmed via TLS Layer)",
+                "category": "TLS Deep Analysis (SSL Labs)",
+                "severity": "high",
+                "status": "vulnerable",
+                "matched_at": hostname,
+                "attacker_can": (
+                    "Perform an SSL strip / downgrade attack on first-time visitors. Without HSTS, "
+                    "the browser has no memory of HTTPS being required — so an attacker on the same "
+                    "network intercepts the initial HTTP request, strips the redirect to HTTPS, and "
+                    "reads the session in plain text through Burp Proxy. Credentials entered on "
+                    "the first visit are fully exposed."
+                ),
+                "attacker_cannot": None,
+                "recommendation": "Add Strict-Transport-Security: max-age=31536000; includeSubDomains; preload. Submit to the HSTS preload list at hstspreload.org.",
+                "detail": "No HSTS policy detected at TLS level — confirmed by SSL Labs deep scan.",
+                "burp": BURP_NO_HSTS_SSL,
+            })
+        else:
+            max_age = hsts_policy.get("maxAge", 0)
+            findings.append({
+                "id": "ssl_labs_hsts",
+                "name": "HSTS Policy Active (TLS Verified)",
+                "category": "TLS Deep Analysis (SSL Labs)",
+                "severity": "info",
+                "status": "protected",
+                "matched_at": hostname,
+                "attacker_can": None,
+                "attacker_cannot": "Strip HTTPS and force users onto plain HTTP — the browser remembers HSTS and refuses the downgrade.",
+                "recommendation": None,
+                "detail": f"HSTS confirmed by SSL Labs. max-age={max_age}s.",
+                "burp": None,
+            })
+
+    except Exception:
+        # SSL Labs unavailable or rate-limited — no findings, not an error
+        pass
+
+    return findings

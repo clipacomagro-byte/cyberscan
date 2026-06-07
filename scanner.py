@@ -3,7 +3,7 @@ import json
 import shutil
 import threading
 from database import create_scan, update_scan_complete, update_scan_error
-from checks import run_http_checks
+from checks import run_http_checks, run_ssl_labs_checks
 
 SEVERITY_ORDER = ["critical", "high", "medium", "low", "info", "unknown"]
 
@@ -41,6 +41,13 @@ def _parse_nuclei_jsonl(output: str) -> list:
 def run_scan(scan_id: str, url: str):
     # Always run direct HTTP checks first
     findings = run_http_checks(url)
+
+    # Deep TLS analysis via SSL Labs API (works through Cloudflare)
+    ssl_labs_findings = run_ssl_labs_checks(url)
+    existing_ids = {f["id"] for f in findings}
+    for sf in ssl_labs_findings:
+        if sf["id"] not in existing_ids:
+            findings.append(sf)
 
     # Then try Nuclei for CVEs on top
     nuclei_path = shutil.which("nuclei") or "/usr/local/bin/nuclei"
