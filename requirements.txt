@@ -1,4 +1,4 @@
 flask==3.0.3
-weasyprint==60.2
+fpdf2==2.7.9
 Jinja2==3.1.4
 gunicorn==22.0.0
