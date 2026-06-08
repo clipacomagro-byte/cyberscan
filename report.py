@@ -2,6 +2,29 @@ import os
 from datetime import datetime
 from fpdf import FPDF
 
+
+def _safe(text: str) -> str:
+    """Replace Unicode characters unsupported by Helvetica with ASCII equivalents."""
+    if not text:
+        return ""
+    return (
+        text
+        .replace("—", "--")   # em dash —
+        .replace("–", "-")    # en dash –
+        .replace("‘", "'")    # left single quote '
+        .replace("’", "'")    # right single quote '
+        .replace("“", '"')    # left double quote "
+        .replace("”", '"')    # right double quote "
+        .replace("•", "*")    # bullet •
+        .replace(" ", " ")    # non-breaking space
+        .replace("…", "...")  # ellipsis …
+        .replace("→", "->")   # arrow →
+        .replace("é", "e")    # é
+        .replace("à", "a")    # à
+        .replace("ü", "u")    # ü
+        .encode("latin-1", errors="replace").decode("latin-1")
+    )
+
 REPORTS_DIR = os.environ.get("REPORTS_DIR", "reports")
 
 SEV_COLORS = {
@@ -129,7 +152,7 @@ class CyberScanPDF(FPDF):
             "JavaScript secret leakage, subdomain enumeration, exposed administrative panels, "
             "and known CVE vulnerabilities."
         )
-        self.multi_cell(0, 6, intro)
+        self.multi_cell(0, 6, _safe(intro))
         self.ln(4)
 
         if vulnerable:
@@ -190,7 +213,7 @@ class CyberScanPDF(FPDF):
             self.set_font("Helvetica", "B", 10)
             y0 = self.get_y()
             self.set_x(14)
-            self.cell(0, 8, f"  {name}", fill=True, new_x="LMARGIN", new_y="NEXT")
+            self.cell(0, 8, _safe(f"  {name}"), fill=True, new_x="LMARGIN", new_y="NEXT")
 
             # Severity badge on right — go back and write it
             self.set_xy(14, y0)
@@ -202,28 +225,28 @@ class CyberScanPDF(FPDF):
             self.set_text_color(100, 110, 130)
             self.set_font("Helvetica", "I", 8)
             self.set_x(14)
-            self.cell(182, 5, f"  {category}", fill=True, new_x="LMARGIN", new_y="NEXT")
+            self.cell(182, 5, _safe(f"  {category}"), fill=True, new_x="LMARGIN", new_y="NEXT")
 
             # Body
             self.set_fill_color(252, 252, 255)
             body_y = self.get_y()
 
             if f.get("attacker_can"):
-                self._impact_row("ATTACKER CAN", f["attacker_can"], (220, 50, 50), (255, 240, 240))
+                self._impact_row("ATTACKER CAN", _safe(f["attacker_can"]), (220, 50, 50), (255, 240, 240))
 
             if f.get("burp"):
                 burp = f["burp"]
                 tool_line = f"Tool: {burp.get('tool','')}"
-                self._impact_row("BURP SUITE ATTACK", tool_line + "\n" + burp.get("how",""), (180, 80, 0), (255, 248, 235))
+                self._impact_row("BURP SUITE ATTACK", _safe(tool_line + "\n" + burp.get("how","")), (180, 80, 0), (255, 248, 235))
 
             if f.get("recommendation"):
-                self._impact_row("FIX", f["recommendation"], (0, 100, 180), (240, 248, 255))
+                self._impact_row("FIX", _safe(f["recommendation"]), (0, 100, 180), (240, 248, 255))
 
             if f.get("detail"):
                 self.set_x(14)
                 self.set_font("Courier", "", 7)
                 self.set_text_color(120, 120, 120)
-                self.cell(182, 5, f"  {f['detail'][:120]}", new_x="LMARGIN", new_y="NEXT")
+                self.cell(182, 5, _safe(f"  {f['detail'][:120]}"), new_x="LMARGIN", new_y="NEXT")
 
             self.ln(4)
 
@@ -247,12 +270,12 @@ class CyberScanPDF(FPDF):
             self.set_font("Helvetica", "B", 9)
             self.set_text_color(0, 130, 80)
             self.cell(5, 7, "", fill=True)
-            self.cell(177, 7, f"  {name}", fill=True, new_x="LMARGIN", new_y="NEXT")
+            self.cell(177, 7, _safe(f"  {name}"), fill=True, new_x="LMARGIN", new_y="NEXT")
             if cannot:
                 self.set_x(19)
                 self.set_font("Helvetica", "", 8)
                 self.set_text_color(80, 80, 80)
-                self.multi_cell(177, 5, f"Attacker CANNOT: {cannot}")
+                self.multi_cell(177, 5, _safe(f"Attacker CANNOT: {cannot}"))
             self.ln(2)
 
     def _section_title(self, title):
@@ -269,11 +292,11 @@ class CyberScanPDF(FPDF):
         self.set_fill_color(*bg_rgb)
         self.set_font("Helvetica", "B", 7)
         self.set_text_color(*label_rgb)
-        self.cell(182, 5, f"  {label}", fill=True, new_x="LMARGIN", new_y="NEXT")
+        self.cell(182, 5, _safe(f"  {label}"), fill=True, new_x="LMARGIN", new_y="NEXT")
         self.set_x(14)
         self.set_font("Helvetica", "", 8)
         self.set_text_color(50, 50, 50)
-        self.multi_cell(182, 5, f"  {text}", fill=True)
+        self.multi_cell(182, 5, _safe(f"  {text}"), fill=True)
 
 
 def generate_pdf(scan_id: str, url: str, findings: list, created_at: str) -> str:
