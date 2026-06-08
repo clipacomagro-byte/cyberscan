@@ -124,8 +124,10 @@ class CyberScanPDF(FPDF):
         self.set_text_color(50, 50, 50)
         intro = (
             f"CyberScan performed an automated security assessment of {url} on {scan_date}. "
-            "The assessment covered SSL/TLS configuration, HTTP security headers, "
-            "exposed administrative panels, and known CVE vulnerabilities."
+            "The assessment covered SSL/TLS configuration, HTTP security headers, CORS policy, "
+            "session cookie security, rate limiting, promo/bonus endpoint exposure, "
+            "JavaScript secret leakage, subdomain enumeration, exposed administrative panels, "
+            "and known CVE vulnerabilities."
         )
         self.multi_cell(0, 6, intro)
         self.ln(4)
