@@ -10,9 +10,25 @@ import time
 import uuid
 import argparse
 import os
+import re
+import shutil
 from database import init_db, create_scan, get_scan
 from scanner import run_scan
 from report import generate_pdf, REPORTS_DIR
+
+DESKTOP_DIR = os.path.join(os.path.expanduser("~"), "Desktop", "CyberScan Reports")
+
+
+def export_to_desktop(name: str, domain: str, pdf_src: str):
+    """Copy PDF to Desktop/CyberScan Reports/<Company Name>/"""
+    company = re.sub(r'[<>:/\\|?*]', '-', name)
+    clean_domain = domain.replace("https://","").replace("http://","").replace("www.","").rstrip("/")
+    folder = os.path.join(DESKTOP_DIR, company)
+    os.makedirs(folder, exist_ok=True)
+    dst = os.path.join(folder, f"CyberScan_{clean_domain}.pdf")
+    if os.path.exists(pdf_src):
+        shutil.copy2(pdf_src, dst)
+    return dst
 
 TARGETS_FILE = "targets.json"
 
@@ -48,7 +64,7 @@ def run_batch(targets, delay=5):
         scan_id = str(uuid.uuid4())
         try:
             create_scan(scan_id, domain)
-            run_scan(scan_id, domain)
+            run_scan(scan_id, domain, deep_tls=False)  # Skip SSL Labs in batch — too slow
             scan = get_scan(scan_id)
             findings = scan.get("findings", [])
 
@@ -72,7 +88,8 @@ def run_batch(targets, delay=5):
                 "status":   "complete",
             })
 
-            print(f"  -> {len(vulns)} issues ({len(criticals)} critical, {len(highs)} high) | PDF: {pdf_path}")
+            desktop_pdf = export_to_desktop(name, domain, pdf_path)
+            print(f"  -> {len(vulns)} issues ({len(criticals)} critical, {len(highs)} high) | Desktop: {desktop_pdf}")
 
         except Exception as e:
             print(f"  -> ERROR: {e}")
