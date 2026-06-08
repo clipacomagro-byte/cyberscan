@@ -385,6 +385,34 @@ def _check_ssl(url: str) -> dict:
                 "recommendation": None, "detail": "HTTPS in use."}
 
 
+def _is_soft_404(body: str, status: int, path: str) -> bool:
+    """Detect if a 200 response is actually a soft 404 (SPA catchall or custom error page)."""
+    if status != 200:
+        return False
+    body_lower = body.lower()
+    soft_404_signals = [
+        "page not found", "404", "not found", "doesn't exist", "does not exist",
+        "page doesn't exist", "oops", "went wrong", "no page", "can't find",
+        "cannot find", "error 404", "page is missing",
+    ]
+    signal_count = sum(1 for s in soft_404_signals if s in body_lower)
+    return signal_count >= 2
+
+
+def _fetch_body(url: str, timeout: int = 5) -> tuple:
+    """Returns (status, body_str, headers_dict). Catches HTTPError too."""
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "CyberScan/1.0 Security Audit"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            body = r.read(8192).decode("utf-8", errors="ignore")
+            headers = {k.lower(): v for k, v in r.headers.items()}
+            return r.status, body, headers
+    except urllib.error.HTTPError as e:
+        return e.code, "", {}
+    except Exception:
+        return 0, "", {}
+
+
 def _check_exposed_panels(base_url: str) -> list:
     paths = [
         ("/admin", "Admin Panel"),
@@ -399,26 +427,41 @@ def _check_exposed_panels(base_url: str) -> list:
     ]
     findings = []
     base = base_url.rstrip("/")
+
+    # Get homepage fingerprint to detect soft 404s
+    _, homepage_body, _ = _fetch_body(base)
+    homepage_len = len(homepage_body)
+
     for path, label in paths:
-        try:
-            req = urllib.request.Request(base + path, headers={"User-Agent": "CyberScan/1.0 Security Audit"})
-            with urllib.request.urlopen(req, timeout=5) as r:
-                if r.status == 200:
-                    findings.append({
-                        "id": f"exposed_{path.strip('/').replace('/', '_') or 'panel'}",
-                        "name": f"Exposed {label}",
-                        "category": "Exposed Panels",
-                        "severity": "critical" if ".env" in path or "config" in path else "high",
-                        "status": "vulnerable",
-                        "matched_at": base + path,
-                        "attacker_can": f"Access the {label} at {path} without any restriction — this could allow full account takeover, credential theft, or database access.",
-                        "attacker_cannot": None,
-                        "recommendation": f"Restrict access to {path} by IP, add authentication, or remove it if unused.",
-                        "detail": f"HTTP 200 returned from {path}",
-                        "burp": BURP_PANEL,
-                    })
-        except Exception:
-            pass
+        status, body, headers = _fetch_body(base + path)
+        if status != 200:
+            continue
+        # Skip soft 404s — SPA returning homepage or custom 404 page
+        if _is_soft_404(body, status, path):
+            continue
+        # Skip if body is suspiciously similar to homepage (SPA catchall)
+        body_len = len(body)
+        if homepage_len > 0 and abs(body_len - homepage_len) < 500:
+            continue
+        # For .env and config files, also verify content looks like config
+        if path in ("/.env", "/config.php"):
+            config_signals = ["password", "secret", "key", "db_", "database", "<?php", "define(", "host="]
+            if not any(s in body.lower() for s in config_signals):
+                continue
+
+        findings.append({
+            "id": f"exposed_{path.strip('/').replace('/', '_') or 'panel'}",
+            "name": f"Exposed {label}",
+            "category": "Exposed Panels",
+            "severity": "critical" if ".env" in path or "config" in path else "high",
+            "status": "vulnerable",
+            "matched_at": base + path,
+            "attacker_can": f"Access the {label} at {path} without any restriction — this could allow full account takeover, credential theft, or database access.",
+            "attacker_cannot": None,
+            "recommendation": f"Restrict access to {path} by IP, add authentication, or remove it if unused.",
+            "detail": f"HTTP 200 returned from {path} (confirmed real content, not soft 404)",
+            "burp": BURP_PANEL,
+        })
     return findings
 
 
@@ -650,42 +693,56 @@ def _check_promo_endpoints(base_url: str) -> list:
     ]
     findings = []
     base = base_url.rstrip("/")
-    for path, label in paths:
-        try:
-            req = urllib.request.Request(
-                base + path,
-                headers={"User-Agent": "CyberScan/1.0 Security Audit"},
-            )
-            try:
-                with urllib.request.urlopen(req, timeout=5) as resp:
-                    status = resp.status
-                    body_preview = resp.read(512).decode("utf-8", errors="ignore")
-            except urllib.error.HTTPError as e:
-                status = e.code
-                body_preview = ""
+    # Fingerprint homepage to detect soft 404s
+    _, homepage_body, _ = _fetch_body(base)
+    homepage_len = len(homepage_body)
 
-            if status in (200, 201, 301, 302):
-                # Check if body looks like API/promo data
-                interesting = any(kw in body_preview.lower() for kw in
-                                  ["code", "promo", "bonus", "amount", "credit", "token", "expire", "valid", "coupon", "voucher"])
-                findings.append({
-                    "id": f"promo_{path.strip('/').replace('/', '_')}",
-                    "name": f"Exposed {label}: {path}",
-                    "category": "Business Logic / Promo Exposure",
-                    "severity": "high" if interesting else "medium",
-                    "status": "vulnerable",
-                    "matched_at": base + path,
-                    "attacker_can": (
-                        f"Access {path} which returned HTTP {status}. "
-                        f"{'Response contains promo/bonus data — an attacker can enumerate promo codes, harvest active bonuses, or replay redemption requests to claim credits at scale.' if interesting else 'This endpoint may expose promo logic, codes, or redemption workflows that can be reverse-engineered and abused.'}"
-                    ),
-                    "attacker_cannot": None,
-                    "recommendation": f"Require authentication on {path}. Implement rate limiting. Validate redemption server-side (one-time use, per-account limits, expiry checks). Do not expose promo codes or amounts in unauthenticated responses.",
-                    "detail": f"HTTP {status} from {path}" + (f" | Response snippet: {body_preview[:120]}" if interesting else ""),
-                    "burp": BURP_PROMO,
-                })
-        except Exception:
-            pass
+    for path, label in paths:
+        status, body, headers = _fetch_body(base + path, timeout=5)
+
+        # Only care about 200/201 responses
+        if status not in (200, 201):
+            continue
+
+        # Skip soft 404s
+        if _is_soft_404(body, status, path):
+            continue
+
+        # Skip if body matches homepage length (SPA catchall returning homepage)
+        if homepage_len > 0 and abs(len(body) - homepage_len) < 500:
+            continue
+
+        content_type = headers.get("content-type", "").lower()
+        is_json = "json" in content_type or (body.strip().startswith(("{", "[")))
+
+        # For API paths (/api/...) only flag if it's actually returning JSON
+        if "/api/" in path and not is_json:
+            continue
+
+        # Check if body contains promo-related data
+        interesting = is_json or any(kw in body.lower() for kw in
+                      ["code", "promo", "bonus", "amount", "credit", "token",
+                       "expire", "valid", "coupon", "voucher", "reward", "freebet"])
+
+        if not interesting:
+            continue
+
+        findings.append({
+            "id": f"promo_{path.strip('/').replace('/', '_')}",
+            "name": f"Exposed {label}: {path}",
+            "category": "Business Logic / Promo Exposure",
+            "severity": "high" if is_json else "medium",
+            "status": "vulnerable",
+            "matched_at": base + path,
+            "attacker_can": (
+                f"Access {path} which returned HTTP {status} with {'JSON API data' if is_json else 'promo-related content'}. "
+                f"{'An attacker can enumerate promo codes, harvest active bonuses, or replay redemption requests to claim credits at scale without authentication.' if is_json else 'This endpoint exposes promo logic that can be reverse-engineered and abused for free credits or bonus fraud.'}"
+            ),
+            "attacker_cannot": None,
+            "recommendation": f"Require authentication on {path}. Implement rate limiting. Validate redemption server-side — one-time use, per-account limits, expiry checks. Never expose promo codes or amounts in unauthenticated responses.",
+            "detail": f"HTTP {status} | {'JSON response' if is_json else 'HTML with promo keywords'} | {body[:150].strip()}",
+            "burp": BURP_PROMO,
+        })
     return findings
 
 
@@ -836,16 +893,10 @@ def _check_subdomains(url: str) -> list:
             # DNS check first (fast fail)
             socket.getaddrinfo(fqdn, None, socket.AF_INET)
             # If DNS resolves, try HTTP
-            req = urllib.request.Request(target, headers={"User-Agent": "CyberScan/1.0 Security Audit"})
-            try:
-                with urllib.request.urlopen(req, timeout=5) as resp:
-                    status = resp.status
-                    server = dict(resp.headers).get("Server", "")
-            except urllib.error.HTTPError as e:
-                status = e.code
-                server = ""
+            status, body, hdrs = _fetch_body(target, timeout=5)
+            server = hdrs.get("server", "")
 
-            if status < 500:
+            if status not in (0,) and status < 500 and not _is_soft_404(body, status, "/"):
                 is_sensitive = sub in ("admin", "internal", "backend", "manage", "management", "staging", "dev", "development", "test")
                 findings.append({
                     "id": f"subdomain_{sub}",
