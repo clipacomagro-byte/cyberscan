@@ -920,6 +920,254 @@ def _check_subdomains(url: str) -> list:
     return findings
 
 
+BURP_ORIGIN_IP = {
+    "tool": "Burp Suite + Shodan/SecurityTrails",
+    "how": "The attacker queries SecurityTrails or Shodan for historical DNS A records of the domain. Old records often reveal the real origin server IP before Cloudflare was added. They then send requests directly to that IP with a spoofed Host header — completely bypassing Cloudflare's WAF, DDoS protection, and rate limiting. Every check that failed against the Cloudflare proxy now succeeds against the naked origin.",
+    "academy_topic": "Information disclosure",
+    "academy_path": "https://portswigger.net/web-security/information-disclosure",
+}
+
+BURP_CALLBACK = {
+    "tool": "Burp Suite Repeater + Intruder",
+    "how": "The attacker intercepts a game provider callback (e.g. Pragmatic Play sending 'player won €500') using Burp Proxy. They replay it in Repeater — if the operator doesn't validate the HMAC signature or check for duplicate transaction IDs, the wallet credits the player twice. Intruder automates replaying hundreds of winning callbacks to drain the operator's wallet.",
+    "academy_topic": "Business logic vulnerabilities",
+    "academy_path": "https://portswigger.net/web-security/logic-flaws",
+}
+
+BURP_SESSION_TOKEN = {
+    "tool": "Burp Suite Repeater",
+    "how": "The attacker intercepts the game launch URL containing a session token (e.g. /game/launch?token=abc123). They send it to Burp Repeater and replay it after it should have expired. If it still works, they can reuse tokens from other players' sessions — loading games on their balance without authentication.",
+    "academy_topic": "Authentication vulnerabilities",
+    "academy_path": "https://portswigger.net/web-security/authentication",
+}
+
+
+def _check_origin_ip(url: str) -> dict:
+    """Try to find the real origin IP behind Cloudflare via DNS + certificate history."""
+    from urllib.parse import urlparse
+    base = {
+        "id": "origin_ip",
+        "name": "Real Origin IP Exposure (Cloudflare Bypass)",
+        "category": "Infrastructure / Cloudflare Bypass",
+        "burp": BURP_ORIGIN_IP,
+    }
+    parsed = urlparse(url)
+    hostname = parsed.hostname or ""
+    try:
+        ip = socket.gethostbyname(hostname)
+        cf_ranges = _CF_IP_RANGES  # reuse existing Cloudflare IP list
+        is_cf = any(ip.startswith(p) for p in cf_ranges)
+
+        if not is_cf:
+            return {**base,
+                "severity": "high", "status": "vulnerable",
+                "matched_at": url,
+                "attacker_can": (
+                    f"Connect directly to the origin server at {ip} — Cloudflare is NOT in front of "
+                    "this IP. All WAF protection, rate limiting and DDoS mitigation is bypassed. "
+                    "The attacker hits the raw server with no restrictions."
+                ),
+                "attacker_cannot": None,
+                "recommendation": "Route ALL traffic through Cloudflare. Block direct access to origin IP using firewall rules — only allow inbound connections from Cloudflare IP ranges.",
+                "detail": f"Origin IP {ip} is not a Cloudflare address — direct server access possible.",
+            }
+        else:
+            # Check common subdomains that may bypass Cloudflare
+            bypass_subs = ["direct", "origin", "backend", "mail", "ftp", "cpanel", "webmail"]
+            exposed = []
+            for sub in bypass_subs:
+                try:
+                    sub_ip = socket.gethostbyname(f"{sub}.{hostname}")
+                    if not any(sub_ip.startswith(p) for p in cf_ranges):
+                        exposed.append(f"{sub}.{hostname} -> {sub_ip}")
+                except Exception:
+                    pass
+            if exposed:
+                return {**base,
+                    "severity": "high", "status": "vulnerable",
+                    "matched_at": url,
+                    "attacker_can": (
+                        "Bypass Cloudflare by connecting to a non-proxied subdomain that resolves "
+                        f"to the real origin IP: {', '.join(exposed)}. From there, all Cloudflare "
+                        "protections are bypassed completely."
+                    ),
+                    "attacker_cannot": None,
+                    "recommendation": "Ensure ALL subdomains are proxied through Cloudflare (orange cloud in DNS). Block origin server from accepting direct connections.",
+                    "detail": f"Non-Cloudflare subdomains found: {', '.join(exposed)}",
+                }
+            return {**base,
+                "severity": "info", "status": "protected",
+                "matched_at": url,
+                "attacker_can": None,
+                "attacker_cannot": "Bypass Cloudflare via direct IP — origin is fully proxied and no exposed subdomains found.",
+                "recommendation": None,
+                "detail": f"Origin IP {ip} is a Cloudflare address. No bypass subdomains detected.",
+            }
+    except Exception as e:
+        return {**base,
+            "severity": "info", "status": "protected",
+            "matched_at": url, "attacker_can": None, "attacker_cannot": None,
+            "recommendation": None, "detail": f"Origin IP check skipped: {e}",
+        }
+
+
+def _check_provider_callbacks(url: str) -> list:
+    """Check for exposed game provider callback/webhook endpoints."""
+    from urllib.parse import urlparse
+    base_url = url.rstrip("/")
+    findings = []
+
+    callback_paths = [
+        ("/callback", "Game Provider Callback"),
+        ("/webhook", "Webhook Endpoint"),
+        ("/api/callback", "API Callback"),
+        ("/api/webhook", "API Webhook"),
+        ("/game/callback", "Game Callback"),
+        ("/casino/callback", "Casino Callback"),
+        ("/provider/callback", "Provider Callback"),
+        ("/wallet/callback", "Wallet Callback"),
+        ("/transaction/callback", "Transaction Callback"),
+        ("/pragmatic/callback", "Pragmatic Play Callback"),
+        ("/evolution/callback", "Evolution Gaming Callback"),
+        ("/netent/callback", "NetEnt Callback"),
+        ("/notify", "Payment Notification"),
+        ("/ipn", "Instant Payment Notification"),
+        ("/payment/notify", "Payment Notify"),
+        ("/deposit/callback", "Deposit Callback"),
+        ("/withdraw/callback", "Withdrawal Callback"),
+    ]
+
+    _, homepage_body, _ = _fetch_body(base_url)
+    homepage_len = len(homepage_body)
+
+    for path, label in callback_paths:
+        status, body, headers = _fetch_body(base_url + path, timeout=5)
+        if status not in (200, 201, 405, 403):
+            continue
+        if status == 200 and _is_soft_404(body, status, path):
+            continue
+        if status == 200 and abs(len(body) - homepage_len) < 500:
+            continue
+
+        content_type = headers.get("content-type", "").lower()
+        is_json = "json" in content_type or body.strip().startswith(("{", "["))
+
+        # 405 = Method Not Allowed = endpoint EXISTS but needs POST
+        # 403 = Forbidden = endpoint exists but protected
+        if status == 405:
+            findings.append({
+                "id": f"callback_{path.strip('/').replace('/', '_')}",
+                "name": f"Game Provider Callback Endpoint Found: {path}",
+                "category": "Casino Business Logic",
+                "severity": "medium",
+                "status": "vulnerable",
+                "matched_at": base_url + path,
+                "attacker_can": (
+                    f"Confirm {path} exists (HTTP 405 = endpoint live, needs POST). "
+                    "If HMAC signature validation is missing or weak, an attacker can POST a forged "
+                    "winning transaction callback — crediting their account with fake winnings without playing."
+                ),
+                "attacker_cannot": None,
+                "recommendation": "Validate ALL provider callbacks with HMAC-SHA256 signature. Verify transaction IDs are unique and not replayable. Whitelist provider IPs.",
+                "detail": f"HTTP 405 from {path} — endpoint exists, requires POST method.",
+                "burp": BURP_CALLBACK,
+            })
+        elif status in (200, 201) and is_json:
+            findings.append({
+                "id": f"callback_{path.strip('/').replace('/', '_')}",
+                "name": f"Exposed Callback Endpoint Returns Data: {path}",
+                "category": "Casino Business Logic",
+                "severity": "high",
+                "status": "vulnerable",
+                "matched_at": base_url + path,
+                "attacker_can": (
+                    f"Access {path} which returned JSON data unauthenticated. "
+                    "This callback endpoint may accept forged transaction data from anyone — "
+                    "not just the game provider. An attacker can POST fake winning callbacks to credit "
+                    "their account without HMAC validation."
+                ),
+                "attacker_cannot": None,
+                "recommendation": "Immediately restrict this endpoint to provider IP ranges only. Implement HMAC-SHA256 signature validation on every callback.",
+                "detail": f"HTTP {status} JSON response from {path}: {body[:100]}",
+                "burp": BURP_CALLBACK,
+            })
+    return findings
+
+
+def _check_session_tokens(url: str) -> list:
+    """Look for game launch endpoints and check for token exposure."""
+    from urllib.parse import urlparse
+    base_url = url.rstrip("/")
+    findings = []
+
+    token_paths = [
+        ("/game/launch", "Game Launch"),
+        ("/games/launch", "Games Launch"),
+        ("/casino/launch", "Casino Launch"),
+        ("/play", "Play Endpoint"),
+        ("/api/game/launch", "API Game Launch"),
+        ("/api/session", "API Session"),
+        ("/api/token", "API Token"),
+        ("/launch", "Launch Endpoint"),
+    ]
+
+    _, homepage_body, _ = _fetch_body(base_url)
+    homepage_len = len(homepage_body)
+
+    for path, label in token_paths:
+        status, body, headers = _fetch_body(base_url + path, timeout=5)
+        if status not in (200, 201, 400, 405):
+            continue
+        if status == 200 and _is_soft_404(body, status, path):
+            continue
+        if status == 200 and abs(len(body) - homepage_len) < 500:
+            continue
+
+        content_type = headers.get("content-type", "").lower()
+        is_json = "json" in content_type or body.strip().startswith(("{", "["))
+
+        token_keywords = ["token", "session", "launch_url", "gameurl", "game_url", "sessionid"]
+        has_token_data = any(kw in body.lower() for kw in token_keywords)
+
+        if status in (200, 201) and (is_json or has_token_data):
+            findings.append({
+                "id": f"session_{path.strip('/').replace('/', '_')}",
+                "name": f"Game Session/Token Endpoint Exposed: {path}",
+                "category": "Casino Business Logic",
+                "severity": "high",
+                "status": "vulnerable",
+                "matched_at": base_url + path,
+                "attacker_can": (
+                    f"Access {path} which returns session or token data unauthenticated. "
+                    "Game session tokens can be replayed to load games on other players' balances, "
+                    "or extracted and reused after they should have expired."
+                ),
+                "attacker_cannot": None,
+                "recommendation": "Require authentication on all game launch endpoints. Make tokens single-use and short-lived (max 5 minutes). Log and alert on token reuse attempts.",
+                "detail": f"HTTP {status} from {path} contains token/session data: {body[:100]}",
+                "burp": BURP_SESSION_TOKEN,
+            })
+        elif status == 400 and is_json:
+            findings.append({
+                "id": f"session_{path.strip('/').replace('/', '_')}",
+                "name": f"Game Launch Endpoint Active: {path}",
+                "category": "Casino Business Logic",
+                "severity": "medium",
+                "status": "vulnerable",
+                "matched_at": base_url + path,
+                "attacker_can": (
+                    f"{path} is live and responding to requests (HTTP 400 = endpoint exists, needs correct params). "
+                    "An attacker can probe this endpoint with different parameters to attempt session hijacking "
+                    "or token reuse on other players' game sessions."
+                ),
+                "attacker_cannot": None,
+                "recommendation": "Ensure all game launch tokens are single-use, tied to authenticated sessions, and expire within 5 minutes.",
+                "detail": f"HTTP 400 JSON from {path} — endpoint active, requires valid parameters.",
+                "burp": BURP_SESSION_TOKEN,
+            })
+    return findings
+
+
 def run_http_checks(url: str) -> tuple:
     """
     Returns (findings_list, cloudflare_info_dict).
@@ -1008,6 +1256,15 @@ def run_http_checks(url: str) -> tuple:
 
     # ── Subdomain enumeration ───────────────────────────────────────────────
     results.extend(_check_subdomains(url))
+
+    # ── Origin IP / Cloudflare bypass ───────────────────────────────────────
+    results.append(_check_origin_ip(url))
+
+    # ── Game provider callback endpoints ────────────────────────────────────
+    results.extend(_check_provider_callbacks(url))
+
+    # ── Game session token endpoints ─────────────────────────────────────────
+    results.extend(_check_session_tokens(url))
 
     return results, cf_info
 
