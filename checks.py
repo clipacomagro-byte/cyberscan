@@ -164,6 +164,62 @@ BURP_SUBDOMAIN = {
     "academy_path": "https://portswigger.net/web-security/information-disclosure",
 }
 
+BURP_DIR_LISTING = {
+    "tool": "Burp Suite Spider + Repeater",
+    "how": "Burp Spider automatically crawls directories and detects 'Index of /' pages that expose the full server file tree. The attacker uses Burp Repeater to browse any path — finding config files, PHP source, database backups, or upload directories. From there, Burp Intruder fuzzes filenames to download arbitrary files without authentication.",
+    "academy_topic": "Information disclosure",
+    "academy_path": "https://portswigger.net/web-security/information-disclosure",
+}
+
+BURP_UNAUTH_UPLOAD = {
+    "tool": "Burp Suite Repeater + Intruder",
+    "how": "The attacker intercepts a file upload request in Burp Proxy and sends it to Repeater. They replace the legitimate PDF/image with a PHP webshell (<?php system($_GET['cmd']); ?>) and change the filename to shell.php. If the server accepts and stores the file without authentication or extension validation, the attacker browses to the uploaded path and executes system commands — achieving full Remote Code Execution on the server.",
+    "academy_topic": "File upload vulnerabilities",
+    "academy_path": "https://portswigger.net/web-security/file-upload",
+}
+
+BURP_OTP_BRUTEFORCE = {
+    "tool": "Burp Suite Intruder (Sniper mode)",
+    "how": "The attacker captures an OTP verification request in Burp Proxy and sends it to Intruder. They set the OTP value as the payload position and load a numeric wordlist from 000000 to 999999 (1,000,000 combinations). With no rate limiting or lockout, Intruder fires requests at full speed — typically cracking a 6-digit OTP in under 30 minutes. On success, the server returns the victim's account credentials in the response body.",
+    "academy_topic": "Authentication vulnerabilities",
+    "academy_path": "https://portswigger.net/web-security/authentication/other-mechanisms",
+}
+
+BURP_EOL_SOFTWARE = {
+    "tool": "Burp Suite Scanner + CVE databases (Metasploit / ExploitDB)",
+    "how": "Burp's passive scanner reads the Server and X-Powered-By headers to fingerprint exact software versions. End-of-life versions (PHP 5.x, Apache 2.2.x) have dozens of published CVEs with working public exploits on ExploitDB and Metasploit Framework. The attacker simply loads the matching Metasploit module (e.g. exploit/multi/http/php_cgi_arg_injection for PHP 5.3/5.4) and runs it directly against the target — no custom exploit development required.",
+    "academy_topic": "Information disclosure",
+    "academy_path": "https://portswigger.net/web-security/information-disclosure",
+}
+
+BURP_STRIPE_TEST_KEY = {
+    "tool": "Burp Suite Target > Site Map + Stripe API",
+    "how": "Burp Spider crawls the application and the attacker searches HTTP History for 'pk_test_' or 'sk_test_'. A publishable test key (pk_test_) confirms the payment gateway is in test mode on a live site — meaning real customer charges may be processed against test infrastructure with no actual money movement, allowing fraudulent bookings. A secret test key (sk_test_) found in source gives full API access to create charges, refunds, and read customer payment data via Stripe's API.",
+    "academy_topic": "Information disclosure",
+    "academy_path": "https://portswigger.net/web-security/information-disclosure",
+}
+
+BURP_PLAINTEXT_CRED = {
+    "tool": "Burp Suite Proxy (HTTP History) + Intruder",
+    "how": "The attacker intercepts OTP verification responses in Burp Proxy and finds the server returning the account password in the response body. They use Burp Intruder to brute-force valid OTP codes (000000–999999) with no rate limiting — on a correct guess, the response contains the plaintext password, giving full account access. This also confirms passwords are stored in plaintext or reversibly encrypted in the database.",
+    "academy_topic": "Authentication vulnerabilities",
+    "academy_path": "https://portswigger.net/web-security/authentication",
+}
+
+BURP_UNAUTH_API = {
+    "tool": "Burp Suite Repeater + Intruder (IDOR)",
+    "how": "The attacker captures API requests (e.g. cancel.php, booking endpoints) in Burp Proxy and sends them to Repeater. Without authentication checks server-side, they change booking IDs or user IDs and replay — cancelling other users' bookings, reading private data, or triggering actions on accounts they don't own. Burp Intruder automates the ID enumeration, scanning thousands of records in minutes.",
+    "academy_topic": "Insecure direct object references (IDOR)",
+    "academy_path": "https://portswigger.net/web-security/access-control/idor",
+}
+
+BURP_CRTSH = {
+    "tool": "crt.sh + Burp Suite Target Scope",
+    "how": "The attacker queries crt.sh (certificate transparency logs) for all SSL certificates ever issued for the target domain — revealing every subdomain that has ever been publicly served, including dev, staging, legacy, and internal apps. Each discovered subdomain is added to Burp's target scope and scanned. Legacy subdomains often run unpatched software, have open directory listings, or expose admin panels removed from the main site.",
+    "academy_topic": "Information disclosure",
+    "academy_path": "https://portswigger.net/web-security/information-disclosure",
+}
+
 BURP_PROMO = {
     "tool": "Burp Suite Repeater + Intruder",
     "how": "The attacker intercepts a promo/bonus redemption request in Burp Proxy, sends it to Repeater and replays it with modified parameters (changing promo codes, user IDs, or amounts). Burp Intruder then automates code enumeration — cycling through alphanumeric promo codes until valid ones are discovered. No rate limiting + predictable code formats = free credits at scale.",
@@ -758,8 +814,15 @@ def _check_js_secrets(url: str) -> list:
         (_re.compile(r'(?i)(password|passwd|pwd)\s*[:=]\s*["\']([^\'"]{6,64})["\']'), "Hardcoded Password"),
         (_re.compile(r'(?i)(aws_access_key_id|aws_secret)\s*[:=]\s*["\']([A-Za-z0-9/+=]{16,64})["\']'), "AWS Credential"),
         (_re.compile(r'(?i)Bearer\s+([A-Za-z0-9_\-\.]{20,})', ), "Bearer Token"),
-        (_re.compile(r'(?i)(stripe[_-]?(?:live|secret)[_-]?key)\s*[:=]\s*["\']([A-Za-z0-9_]{20,})["\']'), "Stripe Key"),
+        (_re.compile(r'(?i)(stripe[_-]?(?:live|secret)[_-]?key)\s*[:=]\s*["\']([A-Za-z0-9_]{20,})["\']'), "Stripe Live Key"),
         (_re.compile(r'(?i)(firebase[_-]?(?:api[_-]?key|token))\s*[:=]\s*["\']([A-Za-z0-9_\-]{20,})["\']'), "Firebase Key"),
+        # Stripe TEST key — payment gateway running in test mode on live site
+        (_re.compile(r'(pk_test_[A-Za-z0-9]{20,})'), "Stripe Test Publishable Key"),
+        (_re.compile(r'(sk_test_[A-Za-z0-9]{20,})'), "Stripe Test Secret Key"),
+        # Plaintext password returned in server response and set into a form field
+        # Pattern: .val(response) or .value = response used on a password field
+        (_re.compile(r'(?i)["\']#?password["\'].*?\.val\s*\(\s*response\s*\)'), "Plaintext Password in Server Response"),
+        (_re.compile(r'(?i)getElementById\s*\(["\']password["\']\).*?\.value\s*=\s*(?:data|response|result)'), "Plaintext Password in Server Response"),
     ]
 
     try:
@@ -1168,6 +1231,813 @@ def _check_session_tokens(url: str) -> list:
     return findings
 
 
+def _check_wordpress(url: str) -> list:
+    """Check for WordPress/WooCommerce specific vulnerabilities."""
+    findings = []
+    base = url.rstrip("/")
+
+    wp_checks = [
+        # WooCommerce REST API — unauthenticated order/customer data
+        ("/wp-json/wc/v3/orders",     "critical", "WooCommerce Orders API Open",
+         "All customer orders (names, addresses, emails, purchase history) are readable by anyone without authentication."),
+        ("/wp-json/wc/v3/customers",  "critical", "WooCommerce Customers API Open",
+         "All customer accounts (names, emails, addresses, billing info) are readable without authentication."),
+        ("/wp-json/wc/v3/products",   "medium",   "WooCommerce Products API Open",
+         "Full product/pricing data is publicly accessible via API — can be used for competitor scraping or price manipulation research."),
+        # WordPress user enumeration
+        ("/wp-json/wp/v2/users",      "high",     "WordPress User Enumeration",
+         "All WordPress usernames and display names are exposed — attackers use these for targeted brute force or phishing."),
+        # Debug/backup files
+        ("/wp-content/debug.log",     "critical", "WordPress Debug Log Exposed",
+         "Full application error log is publicly readable — leaks file paths, database errors, plugin names, and sometimes credentials."),
+        ("/wp-config.php.bak",        "critical", "WordPress Config Backup Exposed",
+         "Backup of wp-config.php may contain database credentials, secret keys, and table prefix."),
+        ("/wp-config.php~",           "critical", "WordPress Config Backup Exposed",
+         "Backup of wp-config.php may contain database credentials and secret keys."),
+        ("/.env",                     "critical", "Environment File Exposed",
+         "The .env file contains database passwords, API keys, and secret tokens in plain text."),
+        # XML-RPC (brute force amplification)
+        ("/xmlrpc.php",               "high",     "WordPress XML-RPC Enabled",
+         "XML-RPC allows attackers to test thousands of username/password combinations in a single request, bypassing rate limits."),
+        # Login page
+        ("/wp-login.php",             "medium",   "WordPress Login Page Exposed",
+         "WordPress admin login is publicly accessible and can be brute-forced."),
+    ]
+
+    for path, severity, name, detail in wp_checks:
+        try:
+            status, body, resp_headers = _fetch_body(base + path)
+            ct = resp_headers.get("content-type", "")
+
+            # Skip soft 404s
+            if _is_soft_404(body, status, path):
+                continue
+
+            # WooCommerce API — must return JSON with actual data
+            if "wc/v3" in path:
+                if status == 200 and "application/json" in ct:
+                    try:
+                        data = json.loads(body)
+                        if isinstance(data, list) and len(data) > 0:
+                            findings.append({
+                                "id": f"woo_{path.split('/')[-1]}",
+                                "name": name,
+                                "category": "WooCommerce / WordPress",
+                                "severity": severity,
+                                "status": "vulnerable",
+                                "matched_at": base + path,
+                                "attacker_can": detail,
+                                "attacker_cannot": None,
+                                "recommendation": "Restrict WooCommerce REST API to authenticated users only. Add `require_login` to REST API settings or use a security plugin.",
+                                "detail": f"API returned {len(data)} records without authentication.",
+                            })
+                    except Exception:
+                        pass
+                continue
+
+            # WordPress users — must return JSON array
+            if "wp/v2/users" in path:
+                if status == 200 and "application/json" in ct:
+                    try:
+                        data = json.loads(body)
+                        if isinstance(data, list) and len(data) > 0:
+                            users = [u.get("slug", u.get("name", "?")) for u in data[:5]]
+                            findings.append({
+                                "id": "wp_user_enum",
+                                "name": name,
+                                "category": "WooCommerce / WordPress",
+                                "severity": severity,
+                                "status": "vulnerable",
+                                "matched_at": base + path,
+                                "attacker_can": detail,
+                                "attacker_cannot": None,
+                                "recommendation": "Disable user enumeration via REST API. Add `remove_action('rest_api_init', ...)` or use a security plugin like Wordfence.",
+                                "detail": f"Exposed usernames: {', '.join(users)}",
+                            })
+                    except Exception:
+                        pass
+                continue
+
+            # Debug log / backup files — any 200 with content
+            if status == 200 and len(body) > 50:
+                findings.append({
+                    "id": f"wp_{path.split('/')[-1].replace('.', '_')}",
+                    "name": name,
+                    "category": "WooCommerce / WordPress",
+                    "severity": severity,
+                    "status": "vulnerable",
+                    "matched_at": base + path,
+                    "attacker_can": detail,
+                    "attacker_cannot": None,
+                    "recommendation": "Delete or restrict access to this file immediately via .htaccess or server config.",
+                    "detail": f"HTTP {status} — {len(body)} bytes returned.",
+                })
+
+        except Exception:
+            continue
+
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# Directory listing detection
+# ---------------------------------------------------------------------------
+
+def _check_directory_listing(base_url: str) -> list:
+    """
+    Probe common paths for Apache/nginx directory listing ('Index of /').
+    These expose the full file tree — config files, backups, upload dirs.
+    """
+    import re as _re
+    from urllib.parse import urljoin
+
+    PATHS = [
+        "/", "/uploads/", "/upload/", "/files/", "/images/", "/assets/",
+        "/backup/", "/backups/", "/logs/", "/log/", "/tmp/", "/temp/",
+        "/API/", "/API/POST/", "/api/", "/static/", "/media/", "/data/",
+        "/includes/", "/inc/", "/js/", "/css/", "/menus/", "/docs/",
+        "/config/", "/admin/", "/old/", "/archive/", "/exports/",
+    ]
+
+    DIR_LISTING_PATTERNS = [
+        _re.compile(r'<title>Index of /', _re.IGNORECASE),
+        _re.compile(r'<h1>Index of /', _re.IGNORECASE),
+        _re.compile(r'Directory listing for /', _re.IGNORECASE),
+        _re.compile(r'\[To Parent Directory\]', _re.IGNORECASE),
+    ]
+
+    findings = []
+    exposed = []
+
+    for path in PATHS:
+        target = urljoin(base_url, path)
+        try:
+            req = urllib.request.Request(
+                target,
+                headers={"User-Agent": "CyberScan/1.0 Security Audit"},
+                method="GET",
+            )
+            with urllib.request.urlopen(req, timeout=6) as r:
+                if r.status not in (200, 206):
+                    continue
+                body = r.read(8000).decode("utf-8", errors="ignore")
+                for pat in DIR_LISTING_PATTERNS:
+                    if pat.search(body):
+                        exposed.append(path)
+                        break
+        except Exception:
+            pass
+
+    if exposed:
+        findings.append({
+            "id": "directory_listing",
+            "name": f"Directory Listing Enabled ({len(exposed)} path{'s' if len(exposed) > 1 else ''})",
+            "category": "Information Disclosure / Misconfiguration",
+            "severity": "high",
+            "status": "vulnerable",
+            "matched_at": base_url,
+            "attacker_can": (
+                f"Browse your server's file system like a public folder — {len(exposed)} director{'ies' if len(exposed) > 1 else 'y'} "
+                f"({', '.join(exposed[:5])}) expose every file they contain. "
+                "An attacker can download PHP source code, config files, database backups, uploaded documents, "
+                "and any file stored on the server — with no authentication and no hacking required."
+            ),
+            "attacker_cannot": None,
+            "recommendation": (
+                "Disable directory listing in your web server config. "
+                "Apache: add 'Options -Indexes' to .htaccess or httpd.conf. "
+                "Nginx: remove 'autoindex on' from your location blocks. "
+                "Add a default index.html to any directory that must remain accessible."
+            ),
+            "detail": f"Directory listing active at: {', '.join(exposed)}",
+            "burp": BURP_DIR_LISTING,
+        })
+    else:
+        findings.append({
+            "id": "directory_listing",
+            "name": "Directory Listing Disabled",
+            "category": "Information Disclosure / Misconfiguration",
+            "severity": "info",
+            "status": "protected",
+            "matched_at": base_url,
+            "attacker_can": None,
+            "attacker_cannot": "Browse server directories — no directory listing pages detected across common paths.",
+            "recommendation": None,
+            "detail": f"Tested {len(PATHS)} paths — no open directory listings found.",
+            "burp": None,
+        })
+
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# Unauthenticated file upload endpoint detection
+# ---------------------------------------------------------------------------
+
+def _check_unauthenticated_upload(base_url: str) -> list:
+    """
+    Probe for file upload endpoints that respond without authentication.
+    A 200/405 response (rather than 401/403/404) suggests the endpoint exists
+    and may accept uploads without auth checks.
+    """
+    from urllib.parse import urljoin
+
+    UPLOAD_PATHS = [
+        "/upload.php", "/uploadPDF.php", "/fileupload.php", "/file_upload.php",
+        "/upload/", "/upload.asp", "/upload.aspx", "/uploader.php",
+        "/API/POST/uploadPDF.php", "/API/POST/upload.php", "/api/upload",
+        "/api/v1/upload", "/api/v2/upload", "/media/upload", "/files/upload",
+        "/admin/upload.php", "/admin/upload", "/cms/upload.php",
+        "/wp-content/uploads/", "/wp-admin/async-upload.php",
+        "/attachments/upload", "/documents/upload", "/images/upload",
+    ]
+
+    findings = []
+    found = []
+
+    for path in UPLOAD_PATHS:
+        target = urljoin(base_url, path)
+        try:
+            # HEAD first to check existence without triggering errors
+            req = urllib.request.Request(
+                target,
+                headers={"User-Agent": "CyberScan/1.0 Security Audit"},
+                method="HEAD",
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=6) as r:
+                    status = r.status
+            except urllib.error.HTTPError as e:
+                status = e.code
+
+            # 200/405 = endpoint exists (405 = Method Not Allowed means it's
+            # there but only accepts POST — still interesting)
+            if status in (200, 405):
+                found.append((path, status))
+        except Exception:
+            pass
+
+    if found:
+        paths_str = ", ".join(f"{p} ({s})" for p, s in found[:5])
+        findings.append({
+            "id": "unauth_upload",
+            "name": f"Unauthenticated Upload Endpoint Detected ({len(found)} found)",
+            "category": "File Upload / Remote Code Execution",
+            "severity": "critical",
+            "status": "vulnerable",
+            "matched_at": base_url,
+            "attacker_can": (
+                f"Access file upload endpoint(s) without authentication: {paths_str}. "
+                "If the endpoint accepts PHP, ASP, or script files, an attacker can upload a webshell "
+                "and execute arbitrary commands on your server — reading databases, stealing files, "
+                "installing backdoors, or using your server to attack other systems. "
+                "This is one of the highest-severity vulnerabilities in web security."
+            ),
+            "attacker_cannot": None,
+            "recommendation": (
+                "Immediately require authentication on all upload endpoints. "
+                "Validate file extensions server-side — whitelist only safe types (jpg, png, pdf). "
+                "Store uploads outside the web root so they cannot be executed. "
+                "Rename uploaded files to random UUIDs, stripping the original extension. "
+                "Scan uploaded files with antivirus before storing."
+            ),
+            "detail": f"Upload endpoints responding without auth: {paths_str}",
+            "burp": BURP_UNAUTH_UPLOAD,
+        })
+    else:
+        findings.append({
+            "id": "unauth_upload",
+            "name": "No Exposed Upload Endpoints",
+            "category": "File Upload / Remote Code Execution",
+            "severity": "info",
+            "status": "protected",
+            "matched_at": base_url,
+            "attacker_can": None,
+            "attacker_cannot": "Access file upload functionality without authentication — no unauthenticated upload endpoints found.",
+            "recommendation": None,
+            "detail": f"Tested {len(UPLOAD_PATHS)} upload paths — none responded without authentication.",
+            "burp": None,
+        })
+
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# OTP / password reset endpoint brute-force check
+# ---------------------------------------------------------------------------
+
+def _check_otp_bruteforce(base_url: str) -> list:
+    """
+    Detect OTP and password-reset endpoints with no rate limiting.
+    Sends 15 rapid requests and checks for 429 / rate-limit headers.
+    A 6-digit OTP with no lockout is brute-forceable in ~30 minutes.
+    """
+    from urllib.parse import urljoin
+    import time as _time
+
+    OTP_PATHS = [
+        "/OTP_verification.php", "/OTP_getnumber.php", "/otp_verify.php",
+        "/otp-verify", "/otp/verify", "/verify-otp", "/verifyOTP",
+        "/forgot-password", "/forgot_password", "/forgotpassword",
+        "/reset-password", "/reset_password", "/password-reset",
+        "/send_otp", "/send-otp", "/resend_otp", "/resend-otp",
+        "/api/otp/verify", "/api/otp/send", "/api/auth/otp",
+        "/auth/forgot-password", "/auth/reset-password",
+        "/account/forgot-password", "/user/forgot-password",
+        "/send_email_otp.php", "/verify_email_otp.php",
+    ]
+
+    findings = []
+    vulnerable_endpoints = []
+
+    for path in OTP_PATHS:
+        target = urljoin(base_url, path)
+        try:
+            # First check if endpoint exists
+            req = urllib.request.Request(
+                target,
+                headers={"User-Agent": "CyberScan/1.0 Security Audit"},
+                method="GET",
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=5) as r:
+                    initial_status = r.status
+            except urllib.error.HTTPError as e:
+                initial_status = e.code
+
+            # Only probe endpoints that actually exist (not 404)
+            if initial_status == 404:
+                continue
+
+            # Fire 15 rapid requests and check for rate limiting
+            got_rate_limited = False
+            statuses = []
+            for _ in range(15):
+                try:
+                    r2 = urllib.request.Request(
+                        target,
+                        headers={"User-Agent": "CyberScan/1.0 Security Audit"},
+                        method="GET",
+                    )
+                    with urllib.request.urlopen(r2, timeout=4) as resp:
+                        code = resp.status
+                        resp_headers = dict(resp.headers)
+                        statuses.append(code)
+                        if code == 429:
+                            got_rate_limited = True
+                            break
+                        rl_headers = ("retry-after", "x-ratelimit-limit", "x-rate-limit",
+                                      "ratelimit-limit", "x-ratelimit-remaining")
+                        if any(h in resp_headers for h in rl_headers):
+                            got_rate_limited = True
+                            break
+                except urllib.error.HTTPError as e:
+                    statuses.append(e.code)
+                    if e.code == 429:
+                        got_rate_limited = True
+                        break
+                except Exception:
+                    break
+
+            if not got_rate_limited and len(statuses) >= 10:
+                vulnerable_endpoints.append(path)
+
+        except Exception:
+            pass
+
+    if vulnerable_endpoints:
+        findings.append({
+            "id": "otp_bruteforce",
+            "name": f"OTP / Password Reset — No Rate Limiting ({len(vulnerable_endpoints)} endpoint{'s' if len(vulnerable_endpoints) > 1 else ''})",
+            "category": "Authentication — Brute Force",
+            "severity": "critical",
+            "status": "vulnerable",
+            "matched_at": base_url,
+            "attacker_can": (
+                f"Brute-force OTP and password reset codes on {len(vulnerable_endpoints)} endpoint(s): "
+                f"{', '.join(vulnerable_endpoints[:3])}. "
+                "A 6-digit OTP has 1,000,000 combinations — with no rate limiting, Burp Intruder "
+                "cracks it in under 30 minutes. On success the server returns the victim's account "
+                "credentials, giving the attacker full access to any guest account they target "
+                "using just a booking number or email address."
+            ),
+            "attacker_cannot": None,
+            "recommendation": (
+                "Implement rate limiting on all OTP endpoints: maximum 5 attempts per 15 minutes per IP and per account. "
+                "Add account lockout after 10 failed attempts. "
+                "Use short OTP expiry (2–5 minutes). "
+                "Consider increasing OTP entropy to 8+ digits or using alphanumeric codes. "
+                "Log and alert on abnormal OTP attempt volumes."
+            ),
+            "detail": f"No rate limiting detected on: {', '.join(vulnerable_endpoints)}",
+            "burp": BURP_OTP_BRUTEFORCE,
+        })
+    else:
+        findings.append({
+            "id": "otp_bruteforce",
+            "name": "OTP / Password Reset Endpoints — Rate Limiting Present",
+            "category": "Authentication — Brute Force",
+            "severity": "info",
+            "status": "protected",
+            "matched_at": base_url,
+            "attacker_can": None,
+            "attacker_cannot": "Brute-force OTP codes — rate limiting or lockout detected on password reset endpoints.",
+            "recommendation": None,
+            "detail": f"Tested {len(OTP_PATHS)} OTP/reset paths — no unprotected endpoints found.",
+            "burp": None,
+        })
+
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# End-of-life / outdated server software detection
+# ---------------------------------------------------------------------------
+
+def _check_eol_software(headers: dict, url: str) -> list:
+    """
+    Detect end-of-life server software versions from response headers.
+    PHP < 7.0 = critical (EOL since 2018), PHP < 8.0 = high (EOL since 2023).
+    Old Apache/nginx versions are flagged with known CVEs.
+    """
+    import re as _re
+
+    findings = []
+
+    server = headers.get("server", "")
+    xpb = headers.get("x-powered-by", "")
+    combined = f"{server} {xpb}"
+
+    # ── PHP version checks ─────────────────────────────────────────────────
+    php_match = _re.search(r'PHP[/\s](\d+)\.(\d+)(?:\.(\d+))?', combined, _re.IGNORECASE)
+    if php_match:
+        major = int(php_match.group(1))
+        minor = int(php_match.group(2))
+        patch = php_match.group(3) or "0"
+        version_str = f"{major}.{minor}.{patch}"
+
+        if major < 7:
+            findings.append({
+                "id": "eol_php",
+                "name": f"End-of-Life PHP Version: {version_str} (Critical)",
+                "category": "Outdated / End-of-Life Software",
+                "severity": "critical",
+                "status": "vulnerable",
+                "matched_at": url,
+                "attacker_can": (
+                    f"Target this server with exploits designed for PHP {version_str} — a version that "
+                    f"reached end-of-life in {'December 2018' if major == 5 else '2017'} and has received "
+                    "no security patches since. Known critical CVEs include remote code execution via "
+                    "CGI argument injection (CVE-2012-1823), object injection, and unserialize() exploits. "
+                    "Metasploit contains ready-made modules for these. No custom exploit development needed."
+                ),
+                "attacker_cannot": None,
+                "recommendation": (
+                    f"Upgrade PHP immediately. PHP {version_str} is critically out of date with no security support. "
+                    "Minimum: PHP 8.1 (supported until November 2025). Recommended: PHP 8.3. "
+                    "PHP 5.x has known unauthenticated RCE vulnerabilities with public exploits."
+                ),
+                "detail": f"PHP/{version_str} detected in response headers — EOL since {'2018' if major == 5 else '2017'}, no security patches available.",
+                "burp": BURP_EOL_SOFTWARE,
+            })
+        elif major == 7:
+            findings.append({
+                "id": "eol_php",
+                "name": f"End-of-Life PHP Version: {version_str} (High)",
+                "category": "Outdated / End-of-Life Software",
+                "severity": "high",
+                "status": "vulnerable",
+                "matched_at": url,
+                "attacker_can": (
+                    f"Target this server with PHP 7.x-specific vulnerabilities. PHP {version_str} reached "
+                    "end-of-life in November 2022 and no longer receives security updates. "
+                    "Any vulnerability discovered after EOL will never be patched — leaving the server "
+                    "permanently exposed to future exploits."
+                ),
+                "attacker_cannot": None,
+                "recommendation": (
+                    f"Upgrade from PHP {version_str} to PHP 8.1+ as soon as possible. "
+                    "PHP 7.x is end-of-life and receives no security patches."
+                ),
+                "detail": f"PHP/{version_str} detected — EOL since November 2022.",
+                "burp": BURP_EOL_SOFTWARE,
+            })
+        else:
+            findings.append({
+                "id": "eol_php",
+                "name": f"PHP Version: {version_str} (Current)",
+                "category": "Outdated / End-of-Life Software",
+                "severity": "info",
+                "status": "protected",
+                "matched_at": url,
+                "attacker_can": None,
+                "attacker_cannot": f"Target known EOL PHP exploits — PHP {version_str} is in active support.",
+                "recommendation": None,
+                "detail": f"PHP/{version_str} detected — currently supported version.",
+                "burp": None,
+            })
+
+    # ── Apache version checks ──────────────────────────────────────────────
+    apache_match = _re.search(r'Apache[/\s](\d+)\.(\d+)(?:\.(\d+))?', combined, _re.IGNORECASE)
+    if apache_match:
+        major = int(apache_match.group(1))
+        minor = int(apache_match.group(2))
+        patch = int(apache_match.group(3) or 0)
+        version_str = f"{major}.{minor}.{patch}"
+
+        is_eol = (major == 2 and minor <= 2) or (major == 2 and minor == 4 and patch < 51)
+        if is_eol:
+            findings.append({
+                "id": "eol_apache",
+                "name": f"Outdated Apache Version: {version_str}",
+                "category": "Outdated / End-of-Life Software",
+                "severity": "high",
+                "status": "vulnerable",
+                "matched_at": url,
+                "attacker_can": (
+                    f"Exploit known Apache {version_str} vulnerabilities. Apache 2.2.x reached EOL in 2018. "
+                    "Apache 2.4.x versions below 2.4.51 are vulnerable to CVE-2021-41773 (path traversal / RCE) "
+                    "and CVE-2021-42013 (remote code execution) — with Metasploit modules publicly available."
+                ),
+                "attacker_cannot": None,
+                "recommendation": f"Upgrade Apache to the latest 2.4.x release. Apache {version_str} has known unpatched CVEs.",
+                "detail": f"Apache/{version_str} detected in Server header — outdated version with known CVEs.",
+                "burp": BURP_EOL_SOFTWARE,
+            })
+
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# Certificate transparency subdomain enumeration (crt.sh)
+# ---------------------------------------------------------------------------
+
+def _check_crtsh_subdomains(url: str) -> list:
+    """
+    Query crt.sh SSL certificate transparency logs to discover ALL subdomains
+    that have ever had a certificate issued — including legacy, dev, staging.
+    Far more comprehensive than wordlist-based guessing.
+    """
+    import json as _json
+    import re as _re
+    from urllib.parse import urlparse, urljoin
+
+    findings = []
+    parsed = urlparse(url)
+    hostname = parsed.hostname or ""
+    scheme = parsed.scheme
+
+    root = hostname
+    if root.startswith("www."):
+        root = root[4:]
+
+    try:
+        crtsh_url = f"https://crt.sh/?q=%25.{root}&output=json"
+        req = urllib.request.Request(
+            crtsh_url,
+            headers={"User-Agent": "CyberScan/1.0 Security Audit"},
+        )
+        with urllib.request.urlopen(req, timeout=15) as r:
+            data = _json.loads(r.read(500000).decode("utf-8", errors="ignore"))
+
+        # Extract unique subdomains
+        seen = set()
+        subdomains = []
+        for entry in data:
+            name = entry.get("name_value", "")
+            for sub in name.splitlines():
+                sub = sub.strip().lower().lstrip("*.")
+                if sub and sub.endswith(root) and sub != root and sub not in seen:
+                    seen.add(sub)
+                    subdomains.append(sub)
+
+        if not subdomains:
+            findings.append({
+                "id": "crtsh_subdomains",
+                "name": "Certificate Transparency — No Additional Subdomains",
+                "category": "Reconnaissance / Attack Surface",
+                "severity": "info",
+                "status": "protected",
+                "matched_at": url,
+                "attacker_can": None,
+                "attacker_cannot": "Discover hidden subdomains via certificate transparency — none found in crt.sh.",
+                "recommendation": None,
+                "detail": f"crt.sh query for *.{root} returned no additional subdomains.",
+                "burp": None,
+            })
+            return findings
+
+        # Probe each discovered subdomain for liveness
+        live = []
+        for sub in subdomains[:40]:  # cap at 40 to avoid long scans
+            for s in (scheme, "https", "http"):
+                target = f"{s}://{sub}"
+                try:
+                    req2 = urllib.request.Request(
+                        target,
+                        headers={"User-Agent": "CyberScan/1.0 Security Audit"},
+                        method="HEAD",
+                    )
+                    with urllib.request.urlopen(req2, timeout=5) as r2:
+                        server = r2.headers.get("server", "")
+                        xpb = r2.headers.get("x-powered-by", "")
+                        live.append({
+                            "host": sub,
+                            "url": target,
+                            "status": r2.status,
+                            "server": server or xpb or "unknown",
+                        })
+                        break
+                except urllib.error.HTTPError as e:
+                    if e.code not in (403, 401):
+                        pass
+                    else:
+                        live.append({
+                            "host": sub,
+                            "url": target,
+                            "status": e.code,
+                            "server": e.headers.get("server", "unknown") if e.headers else "unknown",
+                        })
+                    break
+                except Exception:
+                    pass
+
+        if live:
+            detail_lines = [f"{e['host']} [{e['status']}] ({e['server']})" for e in live[:10]]
+            findings.append({
+                "id": "crtsh_subdomains",
+                "name": f"Certificate Transparency — {len(subdomains)} Subdomains Found, {len(live)} Live",
+                "category": "Reconnaissance / Attack Surface",
+                "severity": "medium",
+                "status": "vulnerable",
+                "matched_at": url,
+                "attacker_can": (
+                    f"Enumerate your entire subdomain attack surface via crt.sh — {len(subdomains)} subdomain(s) found "
+                    f"in SSL certificate transparency logs, {len(live)} confirmed live. "
+                    "Legacy and development subdomains often run older software, lack WAF protection, "
+                    "have directory listing enabled, or expose admin panels removed from the main site. "
+                    "Certificate transparency is public — any attacker can run this query in 10 seconds."
+                ),
+                "attacker_cannot": None,
+                "recommendation": (
+                    "Audit every subdomain found in crt.sh. Decommission any legacy or development subdomains "
+                    "that are no longer needed. Apply the same security hardening to all subdomains as the main site. "
+                    "Consider using wildcard certificates to reduce certificate transparency exposure."
+                ),
+                "detail": f"crt.sh found {len(subdomains)} subdomains for {root}. Live: {' | '.join(detail_lines)}",
+                "burp": BURP_CRTSH,
+            })
+        else:
+            findings.append({
+                "id": "crtsh_subdomains",
+                "name": f"Certificate Transparency — {len(subdomains)} Subdomains Found (None Live)",
+                "category": "Reconnaissance / Attack Surface",
+                "severity": "info",
+                "status": "protected",
+                "matched_at": url,
+                "attacker_can": None,
+                "attacker_cannot": None,
+                "recommendation": None,
+                "detail": f"crt.sh found {len(subdomains)} historical subdomain(s) for {root} but none responded.",
+                "burp": None,
+            })
+
+    except Exception as e:
+        findings.append({
+            "id": "crtsh_subdomains",
+            "name": "Certificate Transparency Scan",
+            "category": "Reconnaissance / Attack Surface",
+            "severity": "info",
+            "status": "protected",
+            "matched_at": url,
+            "attacker_can": None,
+            "attacker_cannot": None,
+            "recommendation": None,
+            "detail": f"crt.sh query skipped: {e}",
+            "burp": None,
+        })
+
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# Unauthenticated API / booking endpoint check
+# ---------------------------------------------------------------------------
+
+def _check_unauth_api_endpoints(base_url: str) -> list:
+    """
+    Probe for sensitive booking/account API endpoints that respond with
+    real data or accept actions without requiring authentication.
+    Pattern: PHP endpoints that return JSON or database responses with no auth.
+    """
+    from urllib.parse import urljoin
+    import json as _json
+
+    # (path, method, post_data) — real endpoints found during Aphrodite Hills research
+    SENSITIVE_PATHS = [
+        ("/cancel.php", "POST", b"booking_id=1&class_id=1"),
+        ("/join.php", "POST", b"class_id=1&client_id=1"),
+        ("/waiting.php", "POST", b"class_id=1&client_id=1"),
+        ("/leavewaiting.php", "POST", b"class_id=1&client_id=1"),
+        ("/json_coupon_code.php", "POST", b"coupon_code=TEST"),
+        ("/json_newclient.php", "POST", b"email=test@test.com&name=test"),
+        ("/getsessions_week.php", "GET", None),
+        ("/json_vod.php", "GET", None),
+        ("/api/bookings", "GET", None),
+        ("/api/reservations", "GET", None),
+        ("/api/users", "GET", None),
+        ("/api/orders", "GET", None),
+        ("/api/cancellations", "POST", b"booking_id=1"),
+        ("/bookings/cancel", "POST", b"id=1"),
+        ("/reservations/cancel", "POST", b"id=1"),
+        ("/account/details", "GET", None),
+        ("/user/profile", "GET", None),
+        ("/api/v1/bookings", "GET", None),
+        ("/api/v1/users", "GET", None),
+    ]
+
+    findings = []
+    exposed = []
+
+    for path, method, post_data in SENSITIVE_PATHS:
+        target = urljoin(base_url, path)
+        try:
+            req = urllib.request.Request(
+                target,
+                data=post_data,
+                headers={
+                    "User-Agent": "CyberScan/1.0 Security Audit",
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+                method=method,
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=6) as r:
+                    status = r.status
+                    body = r.read(2000).decode("utf-8", errors="ignore")
+            except urllib.error.HTTPError as e:
+                status = e.code
+                body = ""
+
+            # Flag if endpoint returns 200 with JSON-like or DB-like content (not a login redirect)
+            if status == 200 and body:
+                looks_sensitive = any(kw in body.lower() for kw in (
+                    "booking", "class", "client", "session", "already", "full",
+                    "subscribed", "cancelled", "success", "error", "invalid",
+                    "{", "[",  # JSON indicators
+                ))
+                looks_like_login_redirect = any(kw in body.lower() for kw in (
+                    "login", "sign in", "unauthorized", "please log in", "<html",
+                ))
+                if looks_sensitive and not looks_like_login_redirect:
+                    exposed.append((path, method, body[:120].strip()))
+
+        except Exception:
+            pass
+
+    if exposed:
+        detail_lines = [f"{m} {p} → {b[:80]}" for p, m, b in exposed[:5]]
+        findings.append({
+            "id": "unauth_api",
+            "name": f"Unauthenticated Sensitive API Endpoints ({len(exposed)} found)",
+            "category": "Broken Access Control / IDOR",
+            "severity": "high",
+            "status": "vulnerable",
+            "matched_at": base_url,
+            "attacker_can": (
+                f"Call {len(exposed)} booking/account API endpoint(s) with no authentication: "
+                f"{', '.join(p for p, _, _ in exposed[:3])}. "
+                "Without auth checks, an attacker can cancel other guests' bookings, join classes as someone else, "
+                "enumerate user data, or trigger account actions on any booking ID they can guess or enumerate. "
+                "Combined with IDOR, every guest's data and reservations are exposed."
+            ),
+            "attacker_cannot": None,
+            "recommendation": (
+                "Require authentication on every API endpoint that reads or modifies user data. "
+                "Verify server-side that the authenticated user owns the resource they are acting on. "
+                "Return 401 Unauthorized (not 200) for unauthenticated requests to sensitive endpoints."
+            ),
+            "detail": " | ".join(detail_lines),
+            "burp": BURP_UNAUTH_API,
+        })
+    else:
+        findings.append({
+            "id": "unauth_api",
+            "name": "No Exposed Unauthenticated API Endpoints",
+            "category": "Broken Access Control / IDOR",
+            "severity": "info",
+            "status": "protected",
+            "matched_at": base_url,
+            "attacker_can": None,
+            "attacker_cannot": "Access booking or account data without authentication — all sensitive endpoints returned auth challenges or 404.",
+            "recommendation": None,
+            "detail": f"Tested {len(SENSITIVE_PATHS)} sensitive API paths — no unauthenticated access found.",
+            "burp": None,
+        })
+
+    return findings
+
+
 def run_http_checks(url: str) -> tuple:
     """
     Returns (findings_list, cloudflare_info_dict).
@@ -1265,6 +2135,27 @@ def run_http_checks(url: str) -> tuple:
 
     # ── Game session token endpoints ─────────────────────────────────────────
     results.extend(_check_session_tokens(url))
+
+    # ── WordPress / WooCommerce checks ──────────────────────────────────────
+    results.extend(_check_wordpress(url))
+
+    # ── Directory listing detection ─────────────────────────────────────────
+    results.extend(_check_directory_listing(url))
+
+    # ── Unauthenticated file upload endpoints ───────────────────────────────
+    results.extend(_check_unauthenticated_upload(url))
+
+    # ── OTP / password reset brute-force (no rate limiting) ─────────────────
+    results.extend(_check_otp_bruteforce(url))
+
+    # ── End-of-life / outdated server software ──────────────────────────────
+    results.extend(_check_eol_software(headers, url))
+
+    # ── Certificate transparency subdomain enumeration (crt.sh) ─────────────
+    results.extend(_check_crtsh_subdomains(url))
+
+    # ── Unauthenticated sensitive API / booking endpoints ───────────────────
+    results.extend(_check_unauth_api_endpoints(url))
 
     return results, cf_info
 
